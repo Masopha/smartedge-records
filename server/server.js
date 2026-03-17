@@ -34,20 +34,26 @@ mongoose.connection.on('disconnected', () => {
 mongoose.connection.once('open', async () => {
   try {
     const { User } = require('./models');
-    const bcrypt = require('bcryptjs');
-    const user = await User.findOne({ staffId: 'S100' });
-    if (user) {
-      const salt = await bcrypt.genSalt(10);
-      user.password = await bcrypt.hash('smart.edge', salt);
-      user.loginAttempts = 0;
-      user.lockUntil = undefined;
-      await user.save();
-      console.log('✅ Password reset on Atlas');
-    } else {
-      console.log('❌ User S100 not found');
-    }
+    
+    // Delete existing user and recreate fresh
+    await User.deleteOne({ staffId: 'S100' });
+    console.log('🗑️ Old user deleted');
+    
+    const user = new User({
+      staffId: 'S100',
+      name: 'System Administrator',
+      email: 'admin@smartedge.com',
+      password: 'smart.edge',
+      role: 'admin',
+      isActive: true,
+      loginAttempts: 0
+    });
+    
+    await user.save();
+    console.log('✅ Fresh admin user created on Atlas');
+    
   } catch (err) {
-    console.error('❌ Password reset error:', err.message);
+    console.error('❌ User creation error:', err.message);
   }
 });
 
