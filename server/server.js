@@ -6,10 +6,8 @@ const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
-
 const routes = require('./routes');
 const { errorHandler } = require('./middleware');
-
 const app = express();
 
 // Connect to MongoDB with retry logic
@@ -31,6 +29,26 @@ connectDB();
 mongoose.connection.on('disconnected', () => {
   console.log('⚠️ MongoDB disconnected. Reconnecting...');
   setTimeout(connectDB, 3000);
+});
+
+mongoose.connection.once('open', async () => {
+  try {
+    const { User } = require('./models');
+    const bcrypt = require('bcryptjs');
+    const user = await User.findOne({ staffId: 'S100' });
+    if (user) {
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash('smart.edge', salt);
+      user.loginAttempts = 0;
+      user.lockUntil = undefined;
+      await user.save();
+      console.log('✅ Password reset on Atlas');
+    } else {
+      console.log('❌ User S100 not found');
+    }
+  } catch (err) {
+    console.error('❌ Password reset error:', err.message);
+  }
 });
 
 // Security middleware
