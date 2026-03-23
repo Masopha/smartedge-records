@@ -18,6 +18,8 @@ import {
 import toast from 'react-hot-toast';
 import { formatCurrency, calculateProfitMargin } from './utils';
 import { authService, salesService, costsService, fieldService, reportService } from './services';
+// Import the period selector and helpers from App
+import { PeriodSelector, MONTHS, WEEKS, getYearOptions } from './App';
 
 // =====================================================
 // ANIMATION VARIANTS
@@ -1147,8 +1149,8 @@ export const Statistics = ({ year, month, week }) => {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const statCards = [
-    { cls: 'sales', label: 'Total Sales', val: summary.sales, icon: <FaChartLine />, sub: `Week ${week}` },
-    { cls: 'costs', label: 'Total Costs', val: summary.costs, icon: <FaMoneyBillWave />, sub: `Week ${week}` },
+    { cls: 'sales', label: 'Total Sales', val: summary.sales, icon: <FaChartLine />, sub: `Week ${week} · ${month} ${year}` },
+    { cls: 'costs', label: 'Total Costs', val: summary.costs, icon: <FaMoneyBillWave />, sub: `Week ${week} · ${month} ${year}` },
     { cls: 'profit', label: 'Net Profit', val: summary.profit, icon: <FaDollarSign />, sub: `${summary.margin.toFixed(1)}% margin` },
     { cls: 'margin', label: 'Profit Margin', val: null, icon: <FaPercent />, sub: 'Revenue efficiency', marginVal: summary.margin }
   ];
@@ -1302,12 +1304,27 @@ export const Statistics = ({ year, month, week }) => {
 // DASHBOARD
 // =====================================================
 export const Dashboard = () => {
-  const currentDate = new Date();
-  const week = Math.ceil(currentDate.getDate() / 7);
-  const month = currentDate.toLocaleString('default', { month: 'long' });
-  const year = currentDate.getFullYear();
-  const dayName = currentDate.toLocaleString('default', { weekday: 'long' });
-  const dateStr = currentDate.toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' });
+  const getSADateParts = () => {
+    const now = new Date();
+    const saDate = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' }));
+    return {
+      week: Math.ceil(saDate.getDate() / 7),
+      month: saDate.toLocaleString('default', { month: 'long' }),
+      year: saDate.getFullYear(),
+      dayName: saDate.toLocaleString('default', { weekday: 'long' }),
+      dateStr: saDate.toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
+    };
+  };
+
+  const defaults = getSADateParts();
+
+  // ─── Dashboard has its own period state so the user can also
+  // browse historical data directly from the dashboard view.
+  const [period, setPeriod] = useState({
+    week: defaults.week,
+    month: defaults.month,
+    year: defaults.year
+  });
 
   return (
     <Container fluid className="py-4" style={{ maxWidth: 1600 }}>
@@ -1318,7 +1335,7 @@ export const Dashboard = () => {
             <h2 className="rotating-gradient" style={{ WebkitTextFillColor: undefined, background: 'linear-gradient(135deg, #667eea, #764ba2, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               SmartEdge Electronics
             </h2>
-            <p>{dayName}, {dateStr} · Week {week} · {month} {year}</p>
+            <p>{defaults.dayName}, {defaults.dateStr}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} />
@@ -1327,16 +1344,24 @@ export const Dashboard = () => {
         </div>
       </motion.div>
 
-      {/* Statistics */}
-      <Statistics year={year} month={month} week={week} />
+      {/* Period selector — lets the user view any historical week from dashboard */}
+      <PeriodSelector
+        week={period.week}
+        month={period.month}
+        year={period.year}
+        onChange={(w, m, y) => setPeriod({ week: w, month: m, year: y })}
+      />
 
-      {/* Tables */}
+      {/* Statistics for the selected period */}
+      <Statistics year={period.year} month={period.month} week={period.week} />
+
+      {/* Tables for the selected period */}
       <Row className="mt-4 g-4">
         <Col xl={6}>
-          <SalesTable week={week} month={month} year={year} />
+          <SalesTable week={period.week} month={period.month} year={period.year} />
         </Col>
         <Col xl={6}>
-          <CostsTable week={week} month={month} year={year} />
+          <CostsTable week={period.week} month={period.month} year={period.year} />
         </Col>
       </Row>
     </Container>
@@ -1375,7 +1400,6 @@ export const Login = ({ onLogin }) => {
         <motion.div className="login-card" variants={scaleIn} initial="hidden" animate="visible">
           <Card>
             <Card.Header style={{ textAlign: 'center', padding: '32px 32px 24px' }}>
-              
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
                 <h4 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
                   SmartEdge Electronics
