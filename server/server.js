@@ -31,29 +31,33 @@ mongoose.connection.on('disconnected', () => {
   setTimeout(connectDB, 3000);
 });
 
+// ─── FIXED: Only create admin user if they don't already exist.
+// Previously this block deleted and recreated the user on EVERY server
+// restart, which caused session instability on Render. Now it only
+// runs the creation once — when the database is brand new and empty.
 mongoose.connection.once('open', async () => {
   try {
     const { User } = require('./models');
-    
-    // Delete existing user and recreate fresh
-    await User.deleteOne({ staffId: 'S100' });
-    console.log('🗑️ Old user deleted');
-    
-    const user = new User({
-      staffId: 'S100',
-      name: 'System Administrator',
-      email: 'admin@smartedge.com',
-      password: 'smart.edge',
-      role: 'admin',
-      isActive: true,
-      loginAttempts: 0
-    });
-    
-    await user.save();
-    console.log('✅ Fresh admin user created on Atlas');
-    
+
+    const existing = await User.findOne({ staffId: 'S100' });
+
+    if (!existing) {
+      const user = new User({
+        staffId: 'S100',
+        name: 'System Administrator',
+        email: 'admin@smartedge.com',
+        password: 'smart.edge',
+        role: 'admin',
+        isActive: true,
+        loginAttempts: 0
+      });
+      await user.save();
+      console.log('✅ Default admin user created for the first time');
+    } else {
+      console.log('✅ Admin user already exists — no changes made');
+    }
   } catch (err) {
-    console.error('❌ User creation error:', err.message);
+    console.error('❌ User check error:', err.message);
   }
 });
 
