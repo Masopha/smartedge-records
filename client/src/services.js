@@ -19,7 +19,6 @@ api.interceptors.request.use(config => {
 // Handle responses and token refresh
 api.interceptors.response.use(
   response => {
-    // Auto-save refreshed token if server sent one
     const newToken = response.headers['x-new-token'];
     if (newToken) {
       localStorage.setItem('token', newToken);
@@ -94,7 +93,9 @@ export const costsService = {
 // ========== REPORTS ==========
 export const reportService = {
   getWeekly: (params) => api.get('/reports/weekly', { params }),
-  getMonthly: (params) => api.get('/reports/monthly', { params })
+  getMonthly: (params) => api.get('/reports/monthly', { params }),
+  // ── NEW: fetches all periods (week+month+year) that have real data ──────────
+  getAvailablePeriods: () => api.get('/reports/available-periods')
 };
 
 export default api;
