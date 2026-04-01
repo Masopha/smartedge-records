@@ -44,4 +44,7 @@ router.delete('/costs/:id/permanent', auth, authorize('admin'), costsController.
 router.get('/reports/weekly', auth, reportController.getWeeklyReport);
 router.get('/reports/monthly', auth, reportController.getMonthlyReport);
 
+// ── NEW: Smart period dropdown — returns only periods with real data ──────────
+router.get('/reports/available-periods', auth, reportController.getAvailablePeriods);
+
 module.exports = router;
