@@ -13,13 +13,13 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip as RechartTooltip, Legend, ResponsiveContainer, Area, AreaChart
+  XAxis, YAxis, CartesianGrid, Tooltip as RechartTooltip, Legend,
+  ResponsiveContainer, Area, AreaChart
 } from 'recharts';
 import toast from 'react-hot-toast';
 import { formatCurrency, calculateProfitMargin } from './utils';
 import { authService, salesService, costsService, fieldService, reportService } from './services';
-// Import the period selector and helpers from App
-import { PeriodSelector, MONTHS, WEEKS, getYearOptions } from './App';
+import { PeriodSelector, getSADateParts } from './App';
 
 // =====================================================
 // ANIMATION VARIANTS
@@ -28,22 +28,18 @@ const fadeUp = {
   hidden: { opacity: 0, y: 24 },
   visible: (i = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.45, delay: i * 0.07, ease: [0.22, 1, 0.36, 1] } })
 };
-
 const fadeIn = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { duration: 0.35 } }
 };
-
 const scaleIn = {
   hidden: { opacity: 0, scale: 0.93 },
   visible: { opacity: 1, scale: 1, transition: { duration: 0.35, ease: [0.34, 1.56, 0.64, 1] } }
 };
-
 const slideLeft = {
   hidden: { opacity: 0, x: -20 },
   visible: { opacity: 1, x: 0, transition: { duration: 0.4 } }
 };
-
 const rowVariant = {
   hidden: { opacity: 0, x: -12 },
   visible: (i) => ({ opacity: 1, x: 0, transition: { delay: i * 0.04, duration: 0.3 } }),
@@ -81,20 +77,9 @@ export const AnimatedBackground = () => {
         container.appendChild(el);
       }
     };
-
-    createElements('particles', 'particle', 25, () => {
-      const size = Math.random() * 6 + 4;
-      return { width: size + 'px', height: size + 'px' };
-    });
-    createElements('stars', 'star', 60, () => {
-      const size = Math.random() * 2 + 1;
-      return { width: size + 'px', height: size + 'px' };
-    });
-    createElements('circles', 'circle', 12, () => {
-      const size = Math.random() * 180 + 60;
-      return { width: size + 'px', height: size + 'px' };
-    });
-
+    createElements('particles', 'particle', 25, () => { const s = Math.random() * 6 + 4; return { width: s + 'px', height: s + 'px' }; });
+    createElements('stars', 'star', 60, () => { const s = Math.random() * 2 + 1; return { width: s + 'px', height: s + 'px' }; });
+    createElements('circles', 'circle', 12, () => { const s = Math.random() * 180 + 60; return { width: s + 'px', height: s + 'px' }; });
     return () => {
       ['particles', 'stars', 'circles'].forEach(id => {
         const el = document.getElementById(id);
@@ -102,7 +87,6 @@ export const AnimatedBackground = () => {
       });
     };
   }, []);
-
   return (
     <>
       <div className="app-bg" />
@@ -135,6 +119,158 @@ const ConfirmDialog = ({ show, title, message, onConfirm, onCancel, variant = 'd
 );
 
 // =====================================================
+// ADD TO CURRENT EDIT MODAL
+// Shown when user clicks Edit on a row. They choose:
+//   • Add to current  →  existing + their new amount  (live preview)
+//   • Replace value   →  overwrite with their number
+// =====================================================
+const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecord, onSave }) => {
+  const [mode, setMode] = useState('add'); // 'add' | 'replace'
+  const [inputValues, setInputValues] = useState({});
+
+  // Reset inputs whenever the modal opens for a new day
+  useEffect(() => {
+    if (show) {
+      const init = {};
+      columns.forEach(col => { init[col.key] = ''; });
+      dynamicFields.forEach(f => { init[`dyn_${f.fieldName}`] = ''; });
+      setInputValues(init);
+      setMode('add');
+    }
+  }, [show, day]);
+
+  const getCurrent = (key) => {
+    if (key.startsWith('dyn_')) {
+      const fieldName = key.replace('dyn_', '');
+      return currentRecord?.values?.get?.(fieldName) ?? currentRecord?.values?.[fieldName] ?? 0;
+    }
+    return currentRecord?.[key] || 0;
+  };
+
+  const getPreview = (key) => {
+    const input = parseFloat(inputValues[key]) || 0;
+    const current = getCurrent(key);
+    return mode === 'add' ? current + input : input;
+  };
+
+  const handleSave = () => {
+    const result = {};
+    columns.forEach(col => { result[col.key] = getPreview(col.key); });
+    const dynValues = {};
+    dynamicFields.forEach(f => { dynValues[f.fieldName] = getPreview(`dyn_${f.fieldName}`); });
+    result.values = dynValues;
+    onSave(result);
+    onHide();
+  };
+
+  const allFields = [
+    ...columns.map(col => ({ key: col.key, label: col.label })),
+    ...dynamicFields.map(f => ({ key: `dyn_${f.fieldName}`, label: f.fieldName }))
+  ];
+
+  return (
+    <Modal show={show} onHide={onHide} centered size="md">
+      <Modal.Header closeButton>
+        <Modal.Title style={{ fontSize: '1rem' }}>
+          <FaEdit className="me-2" style={{ color: 'var(--primary, #667eea)' }} />
+          Edit — {day}
+        </Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        {/* Mode toggle */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          <button
+            onClick={() => setMode('add')}
+            style={{
+              flex: 1, padding: '8px 0', borderRadius: 8, cursor: 'pointer',
+              border: `2px solid ${mode === 'add' ? '#10b981' : 'rgba(255,255,255,0.1)'}`,
+              background: mode === 'add' ? 'rgba(16,185,129,0.12)' : 'transparent',
+              color: mode === 'add' ? '#10b981' : 'var(--text-muted)',
+              fontWeight: 600, fontSize: '0.85rem', transition: 'all 0.2s'
+            }}
+          >
+            ➕ Add to Current
+          </button>
+          <button
+            onClick={() => setMode('replace')}
+            style={{
+              flex: 1, padding: '8px 0', borderRadius: 8, cursor: 'pointer',
+              border: `2px solid ${mode === 'replace' ? '#f59e0b' : 'rgba(255,255,255,0.1)'}`,
+              background: mode === 'replace' ? 'rgba(245,158,11,0.12)' : 'transparent',
+              color: mode === 'replace' ? '#f59e0b' : 'var(--text-muted)',
+              fontWeight: 600, fontSize: '0.85rem', transition: 'all 0.2s'
+            }}
+          >
+            ✏️ Replace Value
+          </button>
+        </div>
+
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+          {mode === 'add'
+            ? 'Enter the new amount to ADD on top of the existing value.'
+            : 'Enter the correct full amount to REPLACE the existing value.'}
+        </p>
+
+        {/* Fields */}
+        {allFields.map(field => {
+          const current = getCurrent(field.key);
+          const input = parseFloat(inputValues[field.key]) || 0;
+          const preview = getPreview(field.key);
+          const hasInput = inputValues[field.key] !== '' && input !== 0;
+
+          return (
+            <div key={field.key} style={{
+              marginBottom: 14, padding: '10px 14px',
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: 8
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  {field.label}
+                </span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Current: <strong style={{ color: '#94a3b8' }}>{formatCurrency(current)}</strong>
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Form.Control
+                  type="number" min="0" step="0.01"
+                  value={inputValues[field.key]}
+                  onChange={e => setInputValues(v => ({ ...v, [field.key]: e.target.value }))}
+                  placeholder={mode === 'add' ? 'Amount to add...' : 'New total value...'}
+                  style={{ flex: 1 }}
+                />
+                {/* Live preview */}
+                {hasInput && (
+                  <div style={{
+                    minWidth: 120, textAlign: 'right', fontSize: '0.85rem',
+                    color: mode === 'add' ? '#10b981' : '#f59e0b', fontWeight: 700
+                  }}>
+                    {mode === 'add' && (
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                        {formatCurrency(current)} + {formatCurrency(input)} =&nbsp;
+                      </span>
+                    )}
+                    {formatCurrency(preview)}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onHide}>Cancel</Button>
+        <Button variant={mode === 'add' ? 'success' : 'warning'} onClick={handleSave}>
+          <FaSave className="me-1" />Save
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
+};
+
+// =====================================================
 // PASSWORD CHANGE MODAL
 // =====================================================
 export const PasswordChange = ({ show, onHide, onSuccess }) => {
@@ -143,32 +279,22 @@ export const PasswordChange = ({ show, onHide, onSuccess }) => {
   const [error, setError] = useState('');
   const [showPwd, setShowPwd] = useState({ current: false, new: false, confirm: false });
 
-  const reset = () => {
-    setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    setError('');
-  };
+  const reset = () => { setForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); setError(''); };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
+    e.preventDefault(); setError('');
     if (form.newPassword.length < 6) return setError('New password must be at least 6 characters');
     if (form.newPassword !== form.confirmPassword) return setError('New passwords do not match');
     if (form.newPassword === form.currentPassword) return setError('New password must differ from current');
-
     setLoading(true);
     try {
       const res = await authService.changePassword({ currentPassword: form.currentPassword, newPassword: form.newPassword });
       if (res.data.token) localStorage.setItem('token', res.data.token);
       toast.success('Password changed successfully!');
-      onSuccess?.();
-      reset();
-      onHide();
+      onSuccess?.(); reset(); onHide();
     } catch (err) {
-      const msg = err.response?.data?.message || 'Failed to change password';
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
+      setError(err.response?.data?.message || 'Failed to change password');
+    } finally { setLoading(false); }
   };
 
   const PwdField = ({ label, field, placeholder }) => (
@@ -232,25 +358,15 @@ export const NavigationBar = ({ user, onLogout }) => {
     { href: '/costs', label: 'Costs', icon: <FaMoneyBillWave size={12} /> },
     { href: '/statistics', label: 'Statistics', icon: <FaChartBar size={12} /> },
   ];
-
-  if (user?.role === 'admin') {
-    navItems.push({ href: '/settings/fields', label: 'Settings', icon: <FaColumns size={12} /> });
-  }
+  if (user?.role === 'admin') navItems.push({ href: '/settings/fields', label: 'Settings', icon: <FaColumns size={12} /> });
 
   return (
     <>
-      <motion.nav
-        className="navbar"
-        initial={{ y: -60 }}
-        animate={{ y: 0 }}
+      <motion.nav className="navbar" initial={{ y: -60 }} animate={{ y: 0 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        style={{ boxShadow: scrolled ? '0 4px 40px rgba(0,0,0,0.5)' : undefined }}
-      >
+        style={{ boxShadow: scrolled ? '0 4px 40px rgba(0,0,0,0.5)' : undefined }}>
         <div className="navbar-inner">
-          <a href="/" className="navbar-brand">
-            <span>SmartEdge</span>
-          </a>
-
+          <a href="/" className="navbar-brand"><span>SmartEdge</span></a>
           <ul className="nav-links">
             {navItems.map(item => (
               <li key={item.href}>
@@ -271,7 +387,6 @@ export const NavigationBar = ({ user, onLogout }) => {
               </a>
             </li>
           </ul>
-
           <div className="nav-user-badge">
             <FaLock size={10} />
             <span>{user?.staffId}</span>
@@ -279,7 +394,6 @@ export const NavigationBar = ({ user, onLogout }) => {
           </div>
         </div>
       </motion.nav>
-
       <PasswordChange show={showPasswordModal} onHide={() => setShowPasswordModal(false)} />
     </>
   );
@@ -291,12 +405,9 @@ export const NavigationBar = ({ user, onLogout }) => {
 const ColumnRenameModal = ({ show, column, onSave, onHide }) => {
   const [name, setName] = useState('');
   useEffect(() => { if (column) setName(column.label); }, [column]);
-
   return (
     <Modal show={show} onHide={onHide} centered size="sm">
-      <Modal.Header closeButton>
-        <Modal.Title style={{ fontSize: '1rem' }}>Rename Column</Modal.Title>
-      </Modal.Header>
+      <Modal.Header closeButton><Modal.Title style={{ fontSize: '1rem' }}>Rename Column</Modal.Title></Modal.Header>
       <Modal.Body>
         <Form.Group>
           <Form.Label>Column Name</Form.Label>
@@ -319,13 +430,11 @@ const ColumnRenameModal = ({ show, column, onSave, onHide }) => {
 const AddColumnModal = ({ show, type, onSave, onHide }) => {
   const [name, setName] = useState('');
   const [fieldType, setFieldType] = useState('currency');
-
   const handleSave = () => {
     if (!name.trim()) return toast.error('Please enter a column name');
     onSave({ fieldName: name.trim(), fieldType, type });
     setName(''); setFieldType('currency');
   };
-
   return (
     <Modal show={show} onHide={onHide} centered size="sm">
       <Modal.Header closeButton>
@@ -335,8 +444,7 @@ const AddColumnModal = ({ show, type, onSave, onHide }) => {
         <Form.Group className="mb-3">
           <Form.Label>Column Name</Form.Label>
           <Form.Control value={name} onChange={e => setName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSave()}
-            autoFocus placeholder="e.g. Accessories, Warranty" />
+            onKeyDown={e => e.key === 'Enter' && handleSave()} autoFocus placeholder="e.g. Accessories, Warranty" />
         </Form.Group>
         <Form.Group>
           <Form.Label>Field Type</Form.Label>
@@ -362,13 +470,7 @@ const AddRowModal = ({ show, type, baseColumns, dynamicFields, week, month, year
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const [day, setDay] = useState('Mon');
   const [values, setValues] = useState({});
-
-  const handleSave = () => {
-    onSave({ day, ...values, week, month, year });
-    setValues({});
-    onHide();
-  };
-
+  const handleSave = () => { onSave({ day, ...values, week, month, year }); setValues({}); onHide(); };
   return (
     <Modal show={show} onHide={onHide} centered>
       <Modal.Header closeButton>
@@ -415,8 +517,7 @@ export const SalesTable = ({ week, month, year }) => {
   const [data, setData] = useState({});
   const [fields, setFields] = useState([]);
   const [deletedFields, setDeletedFields] = useState([]);
-  const [editing, setEditing] = useState(null);
-  const [editValues, setEditValues] = useState({});
+  const [editModal, setEditModal] = useState(null); // { day, record }
   const [loading, setLoading] = useState(true);
   const [showAddCol, setShowAddCol] = useState(false);
   const [showAddRow, setShowAddRow] = useState(false);
@@ -446,41 +547,23 @@ export const SalesTable = ({ week, month, year }) => {
       setData(organized);
       setFields(fieldsRes.data.data);
       setDeletedFields(deletedRes.data.data.filter(f => !f.isActive));
-    } catch {
-      toast.error('Failed to fetch sales data');
-    } finally {
-      setLoading(false);
-    }
+    } catch { toast.error('Failed to fetch sales data'); }
+    finally { setLoading(false); }
   }, [week, month, year, showDeleted]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const startEdit = (day) => {
-    const record = data[day] || {};
-    const vals = {};
-    baseColumns.forEach(col => { vals[col.key] = record[col.key] || 0; });
-    fields.forEach(f => { vals[`dyn_${f.fieldName}`] = record.values?.get?.(f.fieldName) ?? record.values?.[f.fieldName] ?? 0; });
-    setEditValues(vals);
-    setEditing(day);
-  };
-
-  const handleSave = async (day) => {
+  // Called by EditCellModal with the final resolved values
+  const handleEditSave = async (day, resolvedValues) => {
     setSaving(true);
     try {
-      const payload = { week, month, year, day };
-      baseColumns.forEach(col => { payload[col.key] = parseFloat(editValues[col.key]) || 0; });
-      const dynValues = {};
-      fields.forEach(f => { dynValues[f.fieldName] = parseFloat(editValues[`dyn_${f.fieldName}`]) || 0; });
-      payload.values = dynValues;
+      const payload = { week, month, year, day, ...resolvedValues };
       await salesService.create(payload);
       toast.success(`✅ Saved ${day}`);
       await fetchAll();
-      setEditing(null);
-    } catch {
-      toast.error('Failed to save');
-    } finally {
-      setSaving(false);
-    }
+      setEditModal(null);
+    } catch { toast.error('Failed to save'); }
+    finally { setSaving(false); }
   };
 
   const handleDelete = async (id, permanent = false) => {
@@ -494,28 +577,22 @@ export const SalesTable = ({ week, month, year }) => {
   };
 
   const handleRestore = async (id) => {
-    try {
-      await salesService.restore(id);
-      toast.success('Row restored');
-      fetchAll();
-    } catch { toast.error('Failed to restore'); }
+    try { await salesService.restore(id); toast.success('Row restored'); fetchAll(); }
+    catch { toast.error('Failed to restore'); }
   };
 
   const handleAddColumn = async (colData) => {
     try {
       await fieldService.create({ ...colData, type: 'sales' });
       toast.success(`Column "${colData.fieldName}" added`);
-      setShowAddCol(false);
-      fetchAll();
+      setShowAddCol(false); fetchAll();
     } catch { toast.error('Failed to add column'); }
   };
 
   const handleRenameColumn = async (newName) => {
     try {
       await fieldService.update(renameCol._id, { fieldName: newName });
-      toast.success('Column renamed');
-      setRenameCol(null);
-      fetchAll();
+      toast.success('Column renamed'); setRenameCol(null); fetchAll();
     } catch { toast.error('Failed to rename column'); }
   };
 
@@ -530,11 +607,8 @@ export const SalesTable = ({ week, month, year }) => {
   };
 
   const handleRestoreColumn = async (id) => {
-    try {
-      await fieldService.restore(id);
-      toast.success('Column restored');
-      fetchAll();
-    } catch { toast.error('Failed to restore column'); }
+    try { await fieldService.restore(id); toast.success('Column restored'); fetchAll(); }
+    catch { toast.error('Failed to restore column'); }
   };
 
   const handleAddRow = async (rowData) => {
@@ -542,8 +616,7 @@ export const SalesTable = ({ week, month, year }) => {
       const dynValues = {};
       fields.forEach(f => { dynValues[f.fieldName] = rowData[`dyn_${f.fieldName}`] || 0; delete rowData[`dyn_${f.fieldName}`]; });
       await salesService.create({ ...rowData, values: dynValues });
-      toast.success('Row added');
-      fetchAll();
+      toast.success('Row added'); fetchAll();
     } catch { toast.error('Failed to add row'); }
   };
 
@@ -574,20 +647,14 @@ export const SalesTable = ({ week, month, year }) => {
           <Card.Header>
             <div>
               <h3>Daily Sales Summary</h3>
-              <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                Week {week} · {month} {year}
-              </small>
+              <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Week {week} · {month} {year}</small>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="secondary" size="sm" onClick={() => setShowDeleted(v => !v)}>
                 {showDeleted ? <><FaEyeSlash size={11} className="me-1" />Hide Deleted</> : <><FaEye size={11} className="me-1" />Show Deleted</>}
               </Button>
-              <Button variant="success" size="sm" onClick={() => setShowAddRow(true)}>
-                <FaPlus size={11} className="me-1" />Add Row
-              </Button>
-              <Button variant="primary" size="sm" onClick={() => setShowAddCol(true)}>
-                <FaColumns size={11} className="me-1" />Add Column
-              </Button>
+              <Button variant="success" size="sm" onClick={() => setShowAddRow(true)}><FaPlus size={11} className="me-1" />Add Row</Button>
+              <Button variant="primary" size="sm" onClick={() => setShowAddCol(true)}><FaColumns size={11} className="me-1" />Add Column</Button>
             </div>
           </Card.Header>
           <Card.Body style={{ padding: 0 }}>
@@ -627,69 +694,45 @@ export const SalesTable = ({ week, month, year }) => {
                   <AnimatePresence>
                     {days.map((day, i) => {
                       const record = data[day] || {};
-                      const isEditing = editing === day;
                       const isDeleted = record.isDeleted;
-
                       return (
-                        <motion.tr key={day}
-                          variants={rowVariant} custom={i}
-                          initial="hidden" animate="visible" exit="exit"
-                          className={isDeleted ? 'row-deleted' : isEditing ? 'editing-row' : ''}>
+                        <motion.tr key={day} variants={rowVariant} custom={i} initial="hidden" animate="visible" exit="exit"
+                          className={isDeleted ? 'row-deleted' : ''}>
                           <td><strong style={{ color: 'var(--primary)' }}>{day}</strong></td>
                           {baseColumns.map(col => (
                             <td key={col.key}>
-                              {isEditing ? (
-                                <Form.Control type="number" min="0" size="sm"
-                                  value={editValues[col.key] ?? 0}
-                                  onChange={e => setEditValues(v => ({ ...v, [col.key]: e.target.value }))} />
-                              ) : (
-                                <span style={{ color: record[col.key] > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                                  {formatCurrency(record[col.key] || 0)}
-                                </span>
-                              )}
+                              <span style={{ color: record[col.key] > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                                {formatCurrency(record[col.key] || 0)}
+                              </span>
                             </td>
                           ))}
                           {fields.map(f => {
                             const val = record.values?.get?.(f.fieldName) ?? record.values?.[f.fieldName] ?? 0;
                             return (
                               <td key={f._id}>
-                                {isEditing ? (
-                                  <Form.Control type="number" min="0" size="sm"
-                                    value={editValues[`dyn_${f.fieldName}`] ?? 0}
-                                    onChange={e => setEditValues(v => ({ ...v, [`dyn_${f.fieldName}`]: e.target.value }))} />
-                                ) : (
-                                  <span style={{ color: val > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                                    {formatCurrency(val)}
-                                  </span>
-                                )}
+                                <span style={{ color: val > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                                  {formatCurrency(val)}
+                                </span>
                               </td>
                             );
                           })}
                           {deletedFields.map(f => <td key={f._id} style={{ opacity: 0.3 }}>—</td>)}
-                          <td>
-                            <strong style={{ color: 'var(--success)' }}>
-                              {formatCurrency(record.totalSales || 0)}
-                            </strong>
-                          </td>
+                          <td><strong style={{ color: 'var(--success)' }}>{formatCurrency(record.totalSales || 0)}</strong></td>
                           <td>
                             <div className="table-actions">
-                              {isEditing ? (
-                                <>
-                                  <Button variant="success" size="sm" onClick={() => handleSave(day)} disabled={saving}>
-                                    {saving ? <Spinner size="sm" /> : <FaSave size={11} />}
-                                  </Button>
-                                  <Button variant="secondary" size="sm" onClick={() => setEditing(null)}><FaTimes size={11} /></Button>
-                                </>
-                              ) : isDeleted ? (
+                              {isDeleted ? (
                                 <>
                                   <Button variant="info" size="sm" onClick={() => handleRestore(record._id)} title="Restore"><FaUndo size={11} /></Button>
-                                  <Button variant="danger" size="sm" onClick={() => setConfirm({ type: 'deleteRowPerm', id: record._id })} title="Delete Forever"><FaTrashAlt size={11} /></Button>
+                                  <Button variant="danger" size="sm" onClick={() => setConfirm({ type: 'deleteRowPerm', id: record._id })}><FaTrashAlt size={11} /></Button>
                                 </>
                               ) : (
                                 <>
-                                  <Button variant="primary" size="sm" onClick={() => startEdit(day)} title="Edit"><FaEdit size={11} /></Button>
+                                  <Button variant="primary" size="sm" title="Edit"
+                                    onClick={() => setEditModal({ day, record })}>
+                                    <FaEdit size={11} />
+                                  </Button>
                                   {record._id && (
-                                    <Button variant="danger" size="sm" onClick={() => setConfirm({ type: 'deleteRow', id: record._id })} title="Delete"><FaTrash size={11} /></Button>
+                                    <Button variant="danger" size="sm" onClick={() => setConfirm({ type: 'deleteRow', id: record._id })}><FaTrash size={11} /></Button>
                                   )}
                                 </>
                               )}
@@ -699,7 +742,6 @@ export const SalesTable = ({ week, month, year }) => {
                       );
                     })}
                   </AnimatePresence>
-                  {/* TOTALS ROW */}
                   <tr className="total-row sales-total">
                     <td><strong>WEEK TOTAL</strong></td>
                     {baseColumns.map(col => <td key={col.key}>{formatCurrency(totals[col.key])}</td>)}
@@ -715,11 +757,23 @@ export const SalesTable = ({ week, month, year }) => {
         </Card>
       </motion.div>
 
+      {/* Edit modal with Add to Current / Replace */}
+      {editModal && (
+        <EditCellModal
+          show={!!editModal}
+          onHide={() => setEditModal(null)}
+          day={editModal.day}
+          columns={baseColumns}
+          dynamicFields={fields}
+          currentRecord={editModal.record}
+          onSave={(resolvedValues) => handleEditSave(editModal.day, resolvedValues)}
+        />
+      )}
+
       <AddColumnModal show={showAddCol} type="sales" onSave={handleAddColumn} onHide={() => setShowAddCol(false)} />
       <AddRowModal show={showAddRow} type="sales" baseColumns={baseColumns} dynamicFields={fields}
         week={week} month={month} year={year} onSave={handleAddRow} onHide={() => setShowAddRow(false)} />
       {renameCol && <ColumnRenameModal show={!!renameCol} column={renameCol} onSave={handleRenameColumn} onHide={() => setRenameCol(null)} />}
-
       <ConfirmDialog
         show={!!confirm}
         title={confirm?.type?.includes('Perm') ? 'Permanently Delete?' : 'Delete?'}
@@ -750,8 +804,7 @@ export const CostsTable = ({ week, month, year }) => {
   const [data, setData] = useState({});
   const [fields, setFields] = useState([]);
   const [deletedFields, setDeletedFields] = useState([]);
-  const [editing, setEditing] = useState(null);
-  const [editValues, setEditValues] = useState({});
+  const [editModal, setEditModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAddCol, setShowAddCol] = useState(false);
   const [showAddRow, setShowAddRow] = useState(false);
@@ -783,41 +836,22 @@ export const CostsTable = ({ week, month, year }) => {
       setData(organized);
       setFields(fieldsRes.data.data);
       setDeletedFields(deletedRes.data.data.filter(f => !f.isActive));
-    } catch {
-      toast.error('Failed to fetch costs data');
-    } finally {
-      setLoading(false);
-    }
+    } catch { toast.error('Failed to fetch costs data'); }
+    finally { setLoading(false); }
   }, [week, month, year, showDeleted]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const startEdit = (day) => {
-    const record = data[day] || {};
-    const vals = {};
-    baseColumns.forEach(col => { vals[col.key] = record[col.key] || 0; });
-    fields.forEach(f => { vals[`dyn_${f.fieldName}`] = record.values?.get?.(f.fieldName) ?? record.values?.[f.fieldName] ?? 0; });
-    setEditValues(vals);
-    setEditing(day);
-  };
-
-  const handleSave = async (day) => {
+  const handleEditSave = async (day, resolvedValues) => {
     setSaving(true);
     try {
-      const payload = { week, month, year, day };
-      baseColumns.forEach(col => { payload[col.key] = parseFloat(editValues[col.key]) || 0; });
-      const dynValues = {};
-      fields.forEach(f => { dynValues[f.fieldName] = parseFloat(editValues[`dyn_${f.fieldName}`]) || 0; });
-      payload.values = dynValues;
+      const payload = { week, month, year, day, ...resolvedValues };
       await costsService.create(payload);
       toast.success(`✅ Saved ${day}`);
       await fetchAll();
-      setEditing(null);
-    } catch {
-      toast.error('Failed to save');
-    } finally {
-      setSaving(false);
-    }
+      setEditModal(null);
+    } catch { toast.error('Failed to save'); }
+    finally { setSaving(false); }
   };
 
   const handleDelete = async (id, permanent = false) => {
@@ -831,28 +865,22 @@ export const CostsTable = ({ week, month, year }) => {
   };
 
   const handleRestore = async (id) => {
-    try {
-      await costsService.restore(id);
-      toast.success('Row restored');
-      fetchAll();
-    } catch { toast.error('Failed to restore'); }
+    try { await costsService.restore(id); toast.success('Row restored'); fetchAll(); }
+    catch { toast.error('Failed to restore'); }
   };
 
   const handleAddColumn = async (colData) => {
     try {
       await fieldService.create({ ...colData, type: 'costs' });
       toast.success(`Column "${colData.fieldName}" added`);
-      setShowAddCol(false);
-      fetchAll();
+      setShowAddCol(false); fetchAll();
     } catch { toast.error('Failed to add column'); }
   };
 
   const handleRenameColumn = async (newName) => {
     try {
       await fieldService.update(renameCol._id, { fieldName: newName });
-      toast.success('Column renamed');
-      setRenameCol(null);
-      fetchAll();
+      toast.success('Column renamed'); setRenameCol(null); fetchAll();
     } catch { toast.error('Failed to rename'); }
   };
 
@@ -867,11 +895,8 @@ export const CostsTable = ({ week, month, year }) => {
   };
 
   const handleRestoreColumn = async (id) => {
-    try {
-      await fieldService.restore(id);
-      toast.success('Column restored');
-      fetchAll();
-    } catch { toast.error('Failed to restore column'); }
+    try { await fieldService.restore(id); toast.success('Column restored'); fetchAll(); }
+    catch { toast.error('Failed to restore column'); }
   };
 
   const handleAddRow = async (rowData) => {
@@ -879,8 +904,7 @@ export const CostsTable = ({ week, month, year }) => {
       const dynValues = {};
       fields.forEach(f => { dynValues[f.fieldName] = rowData[`dyn_${f.fieldName}`] || 0; delete rowData[`dyn_${f.fieldName}`]; });
       await costsService.create({ ...rowData, values: dynValues });
-      toast.success('Row added');
-      fetchAll();
+      toast.success('Row added'); fetchAll();
     } catch { toast.error('Failed to add row'); }
   };
 
@@ -917,12 +941,8 @@ export const CostsTable = ({ week, month, year }) => {
               <Button variant="secondary" size="sm" onClick={() => setShowDeleted(v => !v)}>
                 {showDeleted ? <><FaEyeSlash size={11} className="me-1" />Hide Deleted</> : <><FaEye size={11} className="me-1" />Show Deleted</>}
               </Button>
-              <Button variant="success" size="sm" onClick={() => setShowAddRow(true)}>
-                <FaPlus size={11} className="me-1" />Add Row
-              </Button>
-              <Button variant="primary" size="sm" onClick={() => setShowAddCol(true)}>
-                <FaColumns size={11} className="me-1" />Add Column
-              </Button>
+              <Button variant="success" size="sm" onClick={() => setShowAddRow(true)}><FaPlus size={11} className="me-1" />Add Row</Button>
+              <Button variant="primary" size="sm" onClick={() => setShowAddCol(true)}><FaColumns size={11} className="me-1" />Add Column</Button>
             </div>
           </Card.Header>
           <Card.Body style={{ padding: 0 }}>
@@ -962,67 +982,43 @@ export const CostsTable = ({ week, month, year }) => {
                   <AnimatePresence>
                     {days.map((day, i) => {
                       const record = data[day] || {};
-                      const isEditing = editing === day;
                       const isDeleted = record.isDeleted;
-
                       return (
-                        <motion.tr key={day}
-                          variants={rowVariant} custom={i}
-                          initial="hidden" animate="visible" exit="exit"
-                          className={isDeleted ? 'row-deleted' : isEditing ? 'editing-row' : ''}>
+                        <motion.tr key={day} variants={rowVariant} custom={i} initial="hidden" animate="visible" exit="exit"
+                          className={isDeleted ? 'row-deleted' : ''}>
                           <td><strong style={{ color: '#f59e0b' }}>{day}</strong></td>
                           {baseColumns.map(col => (
                             <td key={col.key}>
-                              {isEditing ? (
-                                <Form.Control type="number" min="0" size="sm"
-                                  value={editValues[col.key] ?? 0}
-                                  onChange={e => setEditValues(v => ({ ...v, [col.key]: e.target.value }))} />
-                              ) : (
-                                <span style={{ color: record[col.key] > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                                  {formatCurrency(record[col.key] || 0)}
-                                </span>
-                              )}
+                              <span style={{ color: record[col.key] > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                                {formatCurrency(record[col.key] || 0)}
+                              </span>
                             </td>
                           ))}
                           {fields.map(f => {
                             const val = record.values?.get?.(f.fieldName) ?? record.values?.[f.fieldName] ?? 0;
                             return (
                               <td key={f._id}>
-                                {isEditing ? (
-                                  <Form.Control type="number" min="0" size="sm"
-                                    value={editValues[`dyn_${f.fieldName}`] ?? 0}
-                                    onChange={e => setEditValues(v => ({ ...v, [`dyn_${f.fieldName}`]: e.target.value }))} />
-                                ) : (
-                                  <span style={{ color: val > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                                    {formatCurrency(val)}
-                                  </span>
-                                )}
+                                <span style={{ color: val > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                                  {formatCurrency(val)}
+                                </span>
                               </td>
                             );
                           })}
                           {deletedFields.map(f => <td key={f._id} style={{ opacity: 0.3 }}>—</td>)}
-                          <td>
-                            <strong style={{ color: 'var(--danger)' }}>
-                              {formatCurrency(record.totalCosts || 0)}
-                            </strong>
-                          </td>
+                          <td><strong style={{ color: 'var(--danger)' }}>{formatCurrency(record.totalCosts || 0)}</strong></td>
                           <td>
                             <div className="table-actions">
-                              {isEditing ? (
-                                <>
-                                  <Button variant="success" size="sm" onClick={() => handleSave(day)} disabled={saving}>
-                                    {saving ? <Spinner size="sm" /> : <FaSave size={11} />}
-                                  </Button>
-                                  <Button variant="secondary" size="sm" onClick={() => setEditing(null)}><FaTimes size={11} /></Button>
-                                </>
-                              ) : isDeleted ? (
+                              {isDeleted ? (
                                 <>
                                   <Button variant="info" size="sm" onClick={() => handleRestore(record._id)}><FaUndo size={11} /></Button>
                                   <Button variant="danger" size="sm" onClick={() => setConfirm({ type: 'deleteRowPerm', id: record._id })}><FaTrashAlt size={11} /></Button>
                                 </>
                               ) : (
                                 <>
-                                  <Button variant="warning" size="sm" onClick={() => startEdit(day)}><FaEdit size={11} /></Button>
+                                  <Button variant="warning" size="sm" title="Edit"
+                                    onClick={() => setEditModal({ day, record })}>
+                                    <FaEdit size={11} />
+                                  </Button>
                                   {record._id && (
                                     <Button variant="danger" size="sm" onClick={() => setConfirm({ type: 'deleteRow', id: record._id })}><FaTrash size={11} /></Button>
                                   )}
@@ -1049,11 +1045,22 @@ export const CostsTable = ({ week, month, year }) => {
         </Card>
       </motion.div>
 
+      {editModal && (
+        <EditCellModal
+          show={!!editModal}
+          onHide={() => setEditModal(null)}
+          day={editModal.day}
+          columns={baseColumns}
+          dynamicFields={fields}
+          currentRecord={editModal.record}
+          onSave={(resolvedValues) => handleEditSave(editModal.day, resolvedValues)}
+        />
+      )}
+
       <AddColumnModal show={showAddCol} type="costs" onSave={handleAddColumn} onHide={() => setShowAddCol(false)} />
       <AddRowModal show={showAddRow} type="costs" baseColumns={baseColumns} dynamicFields={fields}
         week={week} month={month} year={year} onSave={handleAddRow} onHide={() => setShowAddRow(false)} />
       {renameCol && <ColumnRenameModal show={!!renameCol} column={renameCol} onSave={handleRenameColumn} onHide={() => setRenameCol(null)} />}
-
       <ConfirmDialog
         show={!!confirm}
         title={confirm?.type?.includes('Perm') ? 'Permanently Delete?' : 'Delete?'}
@@ -1078,15 +1085,12 @@ export const CostsTable = ({ week, month, year }) => {
 };
 
 // =====================================================
-// CUSTOM TOOLTIP FOR CHARTS
+// CUSTOM TOOLTIP
 // =====================================================
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{
-      background: 'rgba(10,15,30,0.97)', border: '1px solid rgba(102,126,234,0.3)',
-      borderRadius: 10, padding: '12px 16px', fontSize: '0.82rem', minWidth: 160
-    }}>
+    <div style={{ background: 'rgba(10,15,30,0.97)', border: '1px solid rgba(102,126,234,0.3)', borderRadius: 10, padding: '12px 16px', fontSize: '0.82rem', minWidth: 160 }}>
       <p style={{ color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase' }}>{label}</p>
       {payload.map((p, i) => (
         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 4 }}>
@@ -1107,7 +1111,6 @@ export const Statistics = ({ year, month, week }) => {
   const [summary, setSummary] = useState({ sales: 0, costs: 0, profit: 0, margin: 0 });
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState('line');
-
   const COLORS = ['#667eea', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f43f5e'];
 
   const fetchData = useCallback(async () => {
@@ -1118,7 +1121,6 @@ export const Statistics = ({ year, month, week }) => {
         costsService.getAll({ year, month, week }),
         reportService.getWeekly({ year, week })
       ]);
-
       const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       const daily = days.map(day => {
         const s = salesRes.data.data.find(d => d.day === day && !d.isDeleted)?.totalSales || 0;
@@ -1126,12 +1128,10 @@ export const Statistics = ({ year, month, week }) => {
         return { name: day, Sales: s, Costs: c, Profit: s - c };
       });
       setProfitData(daily);
-
       const totalSales = daily.reduce((sum, d) => sum + d.Sales, 0);
       const totalCosts = daily.reduce((sum, d) => sum + d.Costs, 0);
       const totalProfit = totalSales - totalCosts;
       setSummary({ sales: totalSales, costs: totalCosts, profit: totalProfit, margin: calculateProfitMargin(totalSales, totalCosts) });
-
       const categories = [];
       if (reportRes.data.data?.categoryBreakdown?.sales) {
         for (let [key, value] of Object.entries(reportRes.data.data.categoryBreakdown.sales)) {
@@ -1139,11 +1139,8 @@ export const Statistics = ({ year, month, week }) => {
         }
       }
       setCategoryData(categories);
-    } catch {
-      toast.error('Failed to fetch statistics');
-    } finally {
-      setLoading(false);
-    }
+    } catch { toast.error('Failed to fetch statistics'); }
+    finally { setLoading(false); }
   }, [year, month, week]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -1157,7 +1154,6 @@ export const Statistics = ({ year, month, week }) => {
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeIn}>
-      {/* Stat Cards */}
       <Row className="mb-4 g-3">
         {statCards.map((card, i) => (
           <Col key={card.cls} md={6} xl={3}>
@@ -1175,7 +1171,6 @@ export const Statistics = ({ year, month, week }) => {
         ))}
       </Row>
 
-      {/* Profit Summary Bar */}
       <motion.div variants={fadeUp} custom={4} initial="hidden" animate="visible" className="mb-4">
         <Card>
           <Card.Body style={{ padding: '18px 24px' }}>
@@ -1201,7 +1196,6 @@ export const Statistics = ({ year, month, week }) => {
         </Card>
       </motion.div>
 
-      {/* Charts */}
       <Row className="g-3">
         <Col lg={8}>
           <motion.div variants={fadeUp} custom={5} initial="hidden" animate="visible">
@@ -1217,16 +1211,13 @@ export const Statistics = ({ year, month, week }) => {
                       <AreaChart data={profitData}>
                         <defs>
                           <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                           </linearGradient>
                           <linearGradient id="costsGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} /><stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                           </linearGradient>
                           <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#667eea" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="#667eea" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#667eea" stopOpacity={0.3} /><stop offset="95%" stopColor="#667eea" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
@@ -1258,7 +1249,7 @@ export const Statistics = ({ year, month, week }) => {
                         <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
                         <Line type="monotone" dataKey="Sales" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: '#10b981' }} activeDot={{ r: 6 }} />
                         <Line type="monotone" dataKey="Costs" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 4, fill: '#ef4444' }} activeDot={{ r: 6 }} />
-                        <Line type="monotone" dataKey="Profit" stroke="#667eea" strokeWidth={3} dot={{ r: 4, fill: '#667eea' }} activeDot={{ r: 7 }} strokeDasharray="0" />
+                        <Line type="monotone" dataKey="Profit" stroke="#667eea" strokeWidth={3} dot={{ r: 4, fill: '#667eea' }} activeDot={{ r: 7 }} />
                       </LineChart>
                     )}
                   </ResponsiveContainer>
@@ -1267,7 +1258,6 @@ export const Statistics = ({ year, month, week }) => {
             </Card>
           </motion.div>
         </Col>
-
         <Col lg={4}>
           <motion.div variants={fadeUp} custom={6} initial="hidden" animate="visible">
             <Card style={{ height: '100%' }}>
@@ -1282,8 +1272,7 @@ export const Statistics = ({ year, month, week }) => {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={categoryData} cx="50%" cy="45%" outerRadius={100} innerRadius={50}
-                        dataKey="value" paddingAngle={3} label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
-                        labelLine={false}>
+                        dataKey="value" paddingAngle={3} label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
                         {categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                       </Pie>
                       <RechartTooltip formatter={v => formatCurrency(v)} contentStyle={{ background: 'rgba(10,15,30,0.97)', border: '1px solid rgba(102,126,234,0.3)', borderRadius: 8 }} />
@@ -1304,38 +1293,22 @@ export const Statistics = ({ year, month, week }) => {
 // DASHBOARD
 // =====================================================
 export const Dashboard = () => {
-  const getSADateParts = () => {
-    const now = new Date();
-    const saDate = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' }));
-    return {
-      week: Math.ceil(saDate.getDate() / 7),
-      month: saDate.toLocaleString('default', { month: 'long' }),
-      year: saDate.getFullYear(),
-      dayName: saDate.toLocaleString('default', { weekday: 'long' }),
-      dateStr: saDate.toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
-    };
-  };
+  const now = new Date();
+  const saDate = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' }));
+  const dayName = saDate.toLocaleString('default', { weekday: 'long' });
+  const dateStr = saDate.toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  const defaults = getSADateParts();
-
-  // ─── Dashboard has its own period state so the user can also
-  // browse historical data directly from the dashboard view.
-  const [period, setPeriod] = useState({
-    week: defaults.week,
-    month: defaults.month,
-    year: defaults.year
-  });
+  const [period, setPeriod] = useState(getSADateParts);
 
   return (
     <Container fluid className="py-4" style={{ maxWidth: 1600 }}>
-      {/* Page header */}
       <motion.div variants={slideLeft} initial="hidden" animate="visible" className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2 className="rotating-gradient" style={{ WebkitTextFillColor: undefined, background: 'linear-gradient(135deg, #667eea, #764ba2, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            <h2 style={{ background: 'linear-gradient(135deg, #667eea, #764ba2, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               SmartEdge Electronics
             </h2>
-            <p>{defaults.dayName}, {defaults.dateStr}</p>
+            <p>{dayName}, {dateStr}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} />
@@ -1344,25 +1317,13 @@ export const Dashboard = () => {
         </div>
       </motion.div>
 
-      {/* Period selector — lets the user view any historical week from dashboard */}
-      <PeriodSelector
-        week={period.week}
-        month={period.month}
-        year={period.year}
-        onChange={(w, m, y) => setPeriod({ week: w, month: m, year: y })}
-      />
+      <PeriodSelector value={period} onChange={setPeriod} />
 
-      {/* Statistics for the selected period */}
       <Statistics year={period.year} month={period.month} week={period.week} />
 
-      {/* Tables for the selected period */}
       <Row className="mt-4 g-4">
-        <Col xl={6}>
-          <SalesTable week={period.week} month={period.month} year={period.year} />
-        </Col>
-        <Col xl={6}>
-          <CostsTable week={period.week} month={period.month} year={period.year} />
-        </Col>
+        <Col xl={6}><SalesTable week={period.week} month={period.month} year={period.year} /></Col>
+        <Col xl={6}><CostsTable week={period.week} month={period.month} year={period.year} /></Col>
       </Row>
     </Container>
   );
@@ -1379,8 +1340,7 @@ export const Login = ({ onLogin }) => {
   const [showPwd, setShowPwd] = useState(false);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true); setError('');
+    e.preventDefault(); setLoading(true); setError('');
     try {
       const res = await authService.login({ staffId: staffId.toUpperCase(), password });
       localStorage.setItem('token', res.data.token);
@@ -1389,9 +1349,7 @@ export const Login = ({ onLogin }) => {
       onLogin(res.data.data);
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
@@ -1401,9 +1359,7 @@ export const Login = ({ onLogin }) => {
           <Card>
             <Card.Header style={{ textAlign: 'center', padding: '32px 32px 24px' }}>
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-                <h4 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-                  SmartEdge Electronics
-                </h4>
+                <h4 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>SmartEdge Electronics</h4>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0 }}>Sales & Profit Tracking</p>
               </motion.div>
             </Card.Header>
@@ -1418,16 +1374,12 @@ export const Login = ({ onLogin }) => {
               <Form onSubmit={handleSubmit}>
                 <Form.Group className="mb-3">
                   <Form.Label>Staff ID</Form.Label>
-                  <Form.Control type="text" value={staffId}
-                    onChange={e => setStaffId(e.target.value.toUpperCase())}
-                    placeholder="e.g. S100" required autoFocus />
+                  <Form.Control type="text" value={staffId} onChange={e => setStaffId(e.target.value.toUpperCase())} placeholder="e.g. S100" required autoFocus />
                 </Form.Group>
                 <Form.Group className="mb-4">
                   <Form.Label>Password</Form.Label>
                   <div style={{ position: 'relative' }}>
-                    <Form.Control type={showPwd ? 'text' : 'password'} value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      placeholder="Enter your password" required />
+                    <Form.Control type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password" required />
                     <button type="button" onClick={() => setShowPwd(v => !v)}
                       style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                       {showPwd ? <FaEyeSlash size={14} /> : <FaEye size={14} />}
@@ -1460,16 +1412,11 @@ export const DynamicFieldsSettings = () => {
   const fetchAll = async () => {
     try {
       const [sRes, cRes, sdRes, cdRes] = await Promise.all([
-        fieldService.getAll('sales'),
-        fieldService.getAll('costs'),
-        fieldService.getAll('sales', true),
-        fieldService.getAll('costs', true)
+        fieldService.getAll('sales'), fieldService.getAll('costs'),
+        fieldService.getAll('sales', true), fieldService.getAll('costs', true)
       ]);
       setFields({ sales: sRes.data.data, costs: cRes.data.data });
-      setDeletedFields({
-        sales: sdRes.data.data.filter(f => !f.isActive),
-        costs: cdRes.data.data.filter(f => !f.isActive)
-      });
+      setDeletedFields({ sales: sdRes.data.data.filter(f => !f.isActive), costs: cdRes.data.data.filter(f => !f.isActive) });
     } catch { toast.error('Failed to load fields'); }
     finally { setLoading(false); }
   };
@@ -1477,59 +1424,38 @@ export const DynamicFieldsSettings = () => {
   useEffect(() => { fetchAll(); }, []);
 
   const handleAdd = async (data) => {
-    try {
-      await fieldService.create(data);
-      toast.success(`"${data.fieldName}" column added`);
-      setShowAddCol(null); fetchAll();
-    } catch { toast.error('Failed to add column'); }
+    try { await fieldService.create(data); toast.success(`"${data.fieldName}" column added`); setShowAddCol(null); fetchAll(); }
+    catch { toast.error('Failed to add column'); }
   };
-
   const handleRename = async (name) => {
-    try {
-      await fieldService.update(renameCol._id, { fieldName: name });
-      toast.success('Column renamed');
-      setRenameCol(null); fetchAll();
-    } catch { toast.error('Failed to rename'); }
+    try { await fieldService.update(renameCol._id, { fieldName: name }); toast.success('Column renamed'); setRenameCol(null); fetchAll(); }
+    catch { toast.error('Failed to rename'); }
   };
-
   const handleDelete = async (id, permanent) => {
     try {
       if (permanent) await fieldService.permanentDelete(id);
       else await fieldService.delete(id);
-      toast.success(permanent ? 'Permanently deleted' : 'Column hidden');
-      fetchAll();
+      toast.success(permanent ? 'Permanently deleted' : 'Column hidden'); fetchAll();
     } catch { toast.error('Failed to delete'); }
     setConfirm(null);
   };
-
   const handleRestore = async (id) => {
-    try {
-      await fieldService.restore(id);
-      toast.success('Column restored'); fetchAll();
-    } catch { toast.error('Failed to restore'); }
+    try { await fieldService.restore(id); toast.success('Column restored'); fetchAll(); }
+    catch { toast.error('Failed to restore'); }
   };
 
   const FieldTable = ({ type, list, deleted }) => (
     <Card className="mb-3">
       <Card.Header>
         <h5 style={{ textTransform: 'capitalize' }}>{type} Columns</h5>
-        <Button variant="primary" size="sm" onClick={() => setShowAddCol(type)}>
-          <FaPlus size={11} className="me-1" />Add Column
-        </Button>
+        <Button variant="primary" size="sm" onClick={() => setShowAddCol(type)}><FaPlus size={11} className="me-1" />Add Column</Button>
       </Card.Header>
       <Card.Body style={{ padding: 0 }}>
         {list.length === 0 && deleted.length === 0 ? (
           <div className="empty-state"><p>No custom columns yet</p></div>
         ) : (
           <Table className="table-striped" style={{ margin: 0 }}>
-            <thead>
-              <tr>
-                <th>Column Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Column Name</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               {list.map((f, i) => (
                 <motion.tr key={f._id} variants={rowVariant} custom={i} initial="hidden" animate="visible">
@@ -1539,12 +1465,8 @@ export const DynamicFieldsSettings = () => {
                   <td>
                     <div className="table-actions">
                       <Button variant="primary" size="sm" onClick={() => setRenameCol(f)}><FaEdit size={11} /></Button>
-                      <Button variant="warning" size="sm" onClick={() => setConfirm({ id: f._id, name: f.fieldName, perm: false })}>
-                        <FaEyeSlash size={11} />
-                      </Button>
-                      <Button variant="danger" size="sm" onClick={() => setConfirm({ id: f._id, name: f.fieldName, perm: true })}>
-                        <FaTrash size={11} />
-                      </Button>
+                      <Button variant="warning" size="sm" onClick={() => setConfirm({ id: f._id, name: f.fieldName, perm: false })}><FaEyeSlash size={11} /></Button>
+                      <Button variant="danger" size="sm" onClick={() => setConfirm({ id: f._id, name: f.fieldName, perm: true })}><FaTrash size={11} /></Button>
                     </div>
                   </td>
                 </motion.tr>
@@ -1556,8 +1478,8 @@ export const DynamicFieldsSettings = () => {
                   <td><span style={{ color: '#ef4444', fontSize: '0.8rem' }}>● Hidden</span></td>
                   <td>
                     <div className="table-actions">
-                      <Button variant="info" size="sm" onClick={() => handleRestore(f._id)} title="Restore"><FaUndo size={11} /></Button>
-                      <Button variant="danger" size="sm" onClick={() => setConfirm({ id: f._id, name: f.fieldName, perm: true })} title="Delete Forever"><FaTrashAlt size={11} /></Button>
+                      <Button variant="info" size="sm" onClick={() => handleRestore(f._id)}><FaUndo size={11} /></Button>
+                      <Button variant="danger" size="sm" onClick={() => setConfirm({ id: f._id, name: f.fieldName, perm: true })}><FaTrashAlt size={11} /></Button>
                     </div>
                   </td>
                 </motion.tr>
@@ -1577,22 +1499,14 @@ export const DynamicFieldsSettings = () => {
         <h2>Column Settings</h2>
         <p>Manage dynamic columns for sales and costs tables</p>
       </motion.div>
-
       <FieldTable type="sales" list={fields.sales} deleted={deletedFields.sales} />
       <FieldTable type="costs" list={fields.costs} deleted={deletedFields.costs} />
-
-      {showAddCol && (
-        <AddColumnModal show={!!showAddCol} type={showAddCol} onSave={handleAdd} onHide={() => setShowAddCol(null)} />
-      )}
-      {renameCol && (
-        <ColumnRenameModal show={!!renameCol} column={renameCol} onSave={handleRename} onHide={() => setRenameCol(null)} />
-      )}
+      {showAddCol && <AddColumnModal show={!!showAddCol} type={showAddCol} onSave={handleAdd} onHide={() => setShowAddCol(null)} />}
+      {renameCol && <ColumnRenameModal show={!!renameCol} column={renameCol} onSave={handleRename} onHide={() => setRenameCol(null)} />}
       <ConfirmDialog
         show={!!confirm}
         title={confirm?.perm ? 'Permanently Delete Column?' : 'Hide Column?'}
-        message={confirm?.perm
-          ? `"${confirm?.name}" will be permanently deleted and all its data will be lost.`
-          : `"${confirm?.name}" will be hidden from tables but can be restored.`}
+        message={confirm?.perm ? `"${confirm?.name}" will be permanently deleted and all its data will be lost.` : `"${confirm?.name}" will be hidden from tables but can be restored.`}
         variant={confirm?.perm ? 'danger' : 'warning'}
         confirmText={confirm?.perm ? 'Delete Forever' : 'Hide Column'}
         onConfirm={() => handleDelete(confirm.id, confirm.perm)}
