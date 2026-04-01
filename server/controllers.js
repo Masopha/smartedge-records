@@ -438,7 +438,6 @@ const reportController = {
       const profit = totalSales - totalCosts;
       const profitMargin = totalSales > 0 ? (profit / totalSales) * 100 : 0;
 
-      // Category breakdown for sales
       const categoryBreakdown = { sales: {}, costs: {} };
       sales.forEach(record => {
         ['designMovies', 'phoneRepairs', 'laptopRepairs', 'electronicsSales'].forEach(field => {
@@ -504,6 +503,57 @@ const reportController = {
           weeklyData
         }
       });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // ── NEW: Returns every distinct week+month+year that has real data ──────────
+  // The frontend uses this to build the smart period dropdown so only
+  // periods with actual records appear — no empty selections ever.
+  getAvailablePeriods: async (req, res) => {
+    try {
+      // Pull distinct week/month/year combos from both sales and costs
+      const [salesPeriods, costsPeriods] = await Promise.all([
+        SalesRecord.aggregate([
+          { $match: { isDeleted: { $ne: true } } },
+          { $group: { _id: { week: '$week', month: '$month', year: '$year' } } },
+          { $sort: { '_id.year': -1, '_id.month': -1, '_id.week': -1 } }
+        ]),
+        CostRecord.aggregate([
+          { $match: { isDeleted: { $ne: true } } },
+          { $group: { _id: { week: '$week', month: '$month', year: '$year' } } },
+          { $sort: { '_id.year': -1, '_id.month': -1, '_id.week': -1 } }
+        ])
+      ]);
+
+      // Merge both lists and deduplicate by "week-month-year" key
+      const seen = new Set();
+      const combined = [];
+
+      [...salesPeriods, ...costsPeriods].forEach(({ _id }) => {
+        const key = `${_id.week}-${_id.month}-${_id.year}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push({ week: _id.week, month: _id.month, year: _id.year });
+        }
+      });
+
+      // Month order map so we can sort chronologically
+      const monthOrder = {
+        January: 1, February: 2, March: 3, April: 4,
+        May: 5, June: 6, July: 7, August: 8,
+        September: 9, October: 10, November: 11, December: 12
+      };
+
+      // Sort: most recent first (year desc → month desc → week desc)
+      combined.sort((a, b) => {
+        if (b.year !== a.year) return b.year - a.year;
+        if (monthOrder[b.month] !== monthOrder[a.month]) return monthOrder[b.month] - monthOrder[a.month];
+        return b.week - a.week;
+      });
+
+      res.json({ success: true, data: combined });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
