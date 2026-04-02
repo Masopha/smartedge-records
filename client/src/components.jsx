@@ -120,15 +120,11 @@ const ConfirmDialog = ({ show, title, message, onConfirm, onCancel, variant = 'd
 
 // =====================================================
 // ADD TO CURRENT EDIT MODAL
-// Shown when user clicks Edit on a row. They choose:
-//   • Add to current  →  existing + their new amount  (live preview)
-//   • Replace value   →  overwrite with their number
 // =====================================================
 const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecord, onSave }) => {
-  const [mode, setMode] = useState('add'); // 'add' | 'replace'
+  const [mode, setMode] = useState('add');
   const [inputValues, setInputValues] = useState({});
 
-  // Reset inputs whenever the modal opens for a new day
   useEffect(() => {
     if (show) {
       const init = {};
@@ -147,10 +143,22 @@ const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecor
     return currentRecord?.[key] || 0;
   };
 
+  // ── FIXED: In Replace mode, if the user left a field blank (didn't type
+  // anything), keep the existing value instead of replacing it with 0.
+  // This prevents untouched fields from being wiped when replacing one field.
   const getPreview = (key) => {
-    const input = parseFloat(inputValues[key]) || 0;
+    const raw = inputValues[key];
     const current = getCurrent(key);
-    return mode === 'add' ? current + input : input;
+
+    if (mode === 'add') {
+      const input = parseFloat(raw) || 0;
+      return current + input;
+    }
+
+    // Replace mode — only replace if the user actually typed something.
+    // Empty string means they left it alone, so keep the current value.
+    if (raw === '' || raw === null || raw === undefined) return current;
+    return parseFloat(raw) || 0;
   };
 
   const handleSave = () => {
@@ -208,15 +216,16 @@ const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecor
         <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>
           {mode === 'add'
             ? 'Enter the new amount to ADD on top of the existing value.'
-            : 'Enter the correct full amount to REPLACE the existing value.'}
+            : 'Enter a new amount only for the fields you want to change. Leave others blank to keep their current value.'}
         </p>
 
         {/* Fields */}
         {allFields.map(field => {
           const current = getCurrent(field.key);
-          const input = parseFloat(inputValues[field.key]) || 0;
+          const raw = inputValues[field.key];
+          const input = parseFloat(raw) || 0;
           const preview = getPreview(field.key);
-          const hasInput = inputValues[field.key] !== '' && input !== 0;
+          const hasInput = raw !== '' && raw !== undefined && raw !== null;
 
           return (
             <div key={field.key} style={{
@@ -238,13 +247,13 @@ const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecor
                   type="number" min="0" step="0.01"
                   value={inputValues[field.key]}
                   onChange={e => setInputValues(v => ({ ...v, [field.key]: e.target.value }))}
-                  placeholder={mode === 'add' ? 'Amount to add...' : 'New total value...'}
+                  placeholder={mode === 'add' ? 'Amount to add...' : 'New value (leave blank to keep current)'}
                   style={{ flex: 1 }}
                 />
-                {/* Live preview */}
+                {/* Live preview — only show when user has typed something */}
                 {hasInput && (
                   <div style={{
-                    minWidth: 120, textAlign: 'right', fontSize: '0.85rem',
+                    minWidth: 140, textAlign: 'right', fontSize: '0.85rem',
                     color: mode === 'add' ? '#10b981' : '#f59e0b', fontWeight: 700
                   }}>
                     {mode === 'add' && (
@@ -517,7 +526,7 @@ export const SalesTable = ({ week, month, year }) => {
   const [data, setData] = useState({});
   const [fields, setFields] = useState([]);
   const [deletedFields, setDeletedFields] = useState([]);
-  const [editModal, setEditModal] = useState(null); // { day, record }
+  const [editModal, setEditModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAddCol, setShowAddCol] = useState(false);
   const [showAddRow, setShowAddRow] = useState(false);
@@ -553,7 +562,6 @@ export const SalesTable = ({ week, month, year }) => {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Called by EditCellModal with the final resolved values
   const handleEditSave = async (day, resolvedValues) => {
     setSaving(true);
     try {
@@ -727,8 +735,7 @@ export const SalesTable = ({ week, month, year }) => {
                                 </>
                               ) : (
                                 <>
-                                  <Button variant="primary" size="sm" title="Edit"
-                                    onClick={() => setEditModal({ day, record })}>
+                                  <Button variant="primary" size="sm" title="Edit" onClick={() => setEditModal({ day, record })}>
                                     <FaEdit size={11} />
                                   </Button>
                                   {record._id && (
@@ -757,7 +764,6 @@ export const SalesTable = ({ week, month, year }) => {
         </Card>
       </motion.div>
 
-      {/* Edit modal with Add to Current / Replace */}
       {editModal && (
         <EditCellModal
           show={!!editModal}
@@ -1015,8 +1021,7 @@ export const CostsTable = ({ week, month, year }) => {
                                 </>
                               ) : (
                                 <>
-                                  <Button variant="warning" size="sm" title="Edit"
-                                    onClick={() => setEditModal({ day, record })}>
+                                  <Button variant="warning" size="sm" title="Edit" onClick={() => setEditModal({ day, record })}>
                                     <FaEdit size={11} />
                                   </Button>
                                   {record._id && (
@@ -1297,7 +1302,6 @@ export const Dashboard = () => {
   const saDate = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' }));
   const dayName = saDate.toLocaleString('default', { weekday: 'long' });
   const dateStr = saDate.toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' });
-
   const [period, setPeriod] = useState(getSADateParts);
 
   return (
@@ -1318,9 +1322,7 @@ export const Dashboard = () => {
       </motion.div>
 
       <PeriodSelector value={period} onChange={setPeriod} />
-
       <Statistics year={period.year} month={period.month} week={period.week} />
-
       <Row className="mt-4 g-4">
         <Col xl={6}><SalesTable week={period.week} month={period.month} year={period.year} /></Col>
         <Col xl={6}><CostsTable week={period.week} month={period.month} year={period.year} /></Col>
