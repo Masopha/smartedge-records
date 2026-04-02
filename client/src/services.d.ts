@@ -9,28 +9,37 @@ export const authService: {
 };
 
 export const fieldService: {
-  getAll: (type: string) => Promise<AxiosResponse>;
+  getAll: (type: string, includeDeleted?: boolean) => Promise<AxiosResponse>;
   create: (data: any) => Promise<AxiosResponse>;
   update: (id: string, data: any) => Promise<AxiosResponse>;
   delete: (id: string) => Promise<AxiosResponse>;
+  restore: (id: string) => Promise<AxiosResponse>;
+  permanentDelete: (id: string) => Promise<AxiosResponse>;
 };
 
 export const salesService: {
   getAll: (params: any) => Promise<AxiosResponse>;
   create: (data: any) => Promise<AxiosResponse>;
+  update: (id: string, data: any) => Promise<AxiosResponse>;
   delete: (id: string) => Promise<AxiosResponse>;
+  restore: (id: string) => Promise<AxiosResponse>;
+  permanentDelete: (id: string) => Promise<AxiosResponse>;
   getWeeklySummary: (params: any) => Promise<AxiosResponse>;
 };
 
 export const costsService: {
   getAll: (params: any) => Promise<AxiosResponse>;
   create: (data: any) => Promise<AxiosResponse>;
+  update: (id: string, data: any) => Promise<AxiosResponse>;
   delete: (id: string) => Promise<AxiosResponse>;
+  restore: (id: string) => Promise<AxiosResponse>;
+  permanentDelete: (id: string) => Promise<AxiosResponse>;
 };
 
 export const reportService: {
   getWeekly: (params: any) => Promise<AxiosResponse>;
   getMonthly: (params: any) => Promise<AxiosResponse>;
+  getAvailablePeriods: () => Promise<AxiosResponse>;
 };
 
 declare const api: AxiosInstance;
