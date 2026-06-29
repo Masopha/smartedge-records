@@ -12,7 +12,9 @@ import {
   CostsTable,
   Statistics,
   Login,
-  DynamicFieldsSettings
+  DynamicFieldsSettings,
+  Reports,
+  ProfitLossStatement
 } from './components';
 import { authService, reportService } from './services';
 
@@ -30,7 +32,6 @@ export interface Period {
   year: number;
 }
 
-// ─── Get current SA date parts ────────────────────────────────────────────────
 export const getSADateParts = (): Period => {
   const now = new Date();
   const saDate = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Johannesburg' }));
@@ -41,14 +42,9 @@ export const getSADateParts = (): Period => {
   };
 };
 
-// ─── Format a period as a readable label ─────────────────────────────────────
 export const formatPeriodLabel = (p: Period): string =>
   `${p.month} — Week ${p.week} — ${p.year}`;
 
-// ─── Smart Period Selector ────────────────────────────────────────────────────
-// Fetches all periods with real data from the backend.
-// Shows them in one dropdown — no empty periods ever appear.
-// Always includes the current SA period at the top so new data can be entered.
 interface PeriodSelectorProps {
   value: Period;
   onChange: (p: Period) => void;
@@ -63,14 +59,13 @@ export const PeriodSelector = ({ value, onChange }: PeriodSelectorProps) => {
       .then((res: any) => {
         const data: Period[] = res.data.data;
         setPeriods(data);
-        // Auto-jump to most recent period with data if current selection is empty
         if (data.length > 0) {
           const currentKey = `${value.week}-${value.month}-${value.year}`;
           const exists = data.some(p => `${p.week}-${p.month}-${p.year}` === currentKey);
           if (!exists) onChange(data[0]);
         }
       })
-      .catch(() => { /* silently fail, selector stays on current period */ })
+      .catch(() => { /* silently fail */ })
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -79,7 +74,6 @@ export const PeriodSelector = ({ value, onChange }: PeriodSelectorProps) => {
   const currentKey = `${currentSA.week}-${currentSA.month}-${currentSA.year}`;
   const selectedKey = `${value.week}-${value.month}-${value.year}`;
 
-  // Build dropdown options: current period first, then all historical ones
   const allOptions: Period[] = [];
   const seenKeys = new Set<string>();
   allOptions.push(currentSA);
@@ -141,7 +135,6 @@ export const PeriodSelector = ({ value, onChange }: PeriodSelectorProps) => {
   );
 };
 
-// ─── Page wrappers — each owns its own independent period state ───────────────
 const SalesPage = () => {
   const [period, setPeriod] = useState<Period>(getSADateParts);
   return (
@@ -172,7 +165,6 @@ const StatisticsPage = () => {
   );
 };
 
-// ─── Root App ─────────────────────────────────────────────────────────────────
 const App = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -225,6 +217,8 @@ const App = () => {
           <Route path="/sales" element={user ? <SalesPage /> : <Navigate to="/login" />} />
           <Route path="/costs" element={user ? <CostsPage /> : <Navigate to="/login" />} />
           <Route path="/statistics" element={user ? <StatisticsPage /> : <Navigate to="/login" />} />
+          <Route path="/reports" element={user ? <Reports /> : <Navigate to="/login" />} />
+          <Route path="/profit-loss" element={user ? <ProfitLossStatement /> : <Navigate to="/login" />} />
           <Route path="/settings/fields" element={user?.role === 'admin' ? <DynamicFieldsSettings /> : <Navigate to="/" />} />
         </Routes>
         <Toaster
