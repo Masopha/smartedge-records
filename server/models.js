@@ -2,18 +2,6 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// ─── Helper: extract the last number from a string value ─────────────────────
-// Examples: "Kettle 70.00" → 70.00 | "2x Screen 30.00" → 30.00 | "50" → 50
-const extractNumber = (val) => {
-  if (val === null || val === undefined || val === '') return 0;
-  if (typeof val === 'number') return val;
-  const matches = String(val).match(/[\d]+\.?[\d]*/g);
-  if (!matches || matches.length === 0) return 0;
-  return parseFloat(matches[matches.length - 1]) || 0;
-};
-
-module.exports.extractNumber = extractNumber;
-
 // ==================== USER MODEL ====================
 const userSchema = new mongoose.Schema({
   staffId: { type: String, required: true, unique: true, uppercase: true, trim: true },
@@ -79,21 +67,16 @@ const dynamicFieldSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // ==================== SALES RECORD MODEL ====================
-// Fields changed to String (varchar) so entries like "Kettle 70.00" are allowed.
-// The pre-save hook extracts the last number for totalSales calculation.
 const salesRecordSchema = new mongoose.Schema({
   week: { type: Number, required: true },
   month: { type: String, required: true },
   year: { type: Number, required: true },
   day: { type: String, required: true },
-  // Dynamic field values stored as strings
-  values: { type: Map, of: String, default: {} },
-  // Base fields stored as strings — e.g. "Phone Screen 70.00" or just "70.00"
-  designMovies: { type: String, default: '' },
-  phoneRepairs: { type: String, default: '' },
-  laptopRepairs: { type: String, default: '' },
-  electronicsSales: { type: String, default: '' },
-  // totalSales is always a computed Number for calculations
+  values: { type: Map, of: mongoose.Schema.Types.Mixed, default: {} },
+  designMovies: { type: Number, default: 0 },
+  phoneRepairs: { type: Number, default: 0 },
+  laptopRepairs: { type: Number, default: 0 },
+  electronicsSales: { type: Number, default: 0 },
   totalSales: { type: Number, default: 0 },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   isDeleted: { type: Boolean, default: false },
@@ -102,15 +85,12 @@ const salesRecordSchema = new mongoose.Schema({
 
 salesRecordSchema.index({ year: 1, month: 1, week: 1, day: 1 });
 
-// Pre-save: extract numeric value from each string field and sum them
 salesRecordSchema.pre('save', function() {
-  let total = extractNumber(this.designMovies) +
-              extractNumber(this.phoneRepairs) +
-              extractNumber(this.laptopRepairs) +
-              extractNumber(this.electronicsSales);
+  let total = (this.designMovies || 0) + (this.phoneRepairs || 0) +
+              (this.laptopRepairs || 0) + (this.electronicsSales || 0);
   if (this.values) {
     for (let value of this.values.values()) {
-      total += extractNumber(value);
+      if (typeof value === 'number') total += value;
     }
   }
   this.totalSales = total;
@@ -122,13 +102,13 @@ const costRecordSchema = new mongoose.Schema({
   month: { type: String, required: true },
   year: { type: Number, required: true },
   day: { type: String, required: true },
-  values: { type: Map, of: String, default: {} },
-  designMovies: { type: String, default: '' },
-  phoneParts: { type: String, default: '' },
-  laptopParts: { type: String, default: '' },
-  electronicsParts: { type: String, default: '' },
-  lunchMeals: { type: String, default: '' },
-  other: { type: String, default: '' },
+  values: { type: Map, of: mongoose.Schema.Types.Mixed, default: {} },
+  designMovies: { type: Number, default: 0 },
+  phoneParts: { type: Number, default: 0 },
+  laptopParts: { type: Number, default: 0 },
+  electronicsParts: { type: Number, default: 0 },
+  lunchMeals: { type: Number, default: 0 },
+  other: { type: Number, default: 0 },
   totalCosts: { type: Number, default: 0 },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   isDeleted: { type: Boolean, default: false },
@@ -138,15 +118,12 @@ const costRecordSchema = new mongoose.Schema({
 costRecordSchema.index({ year: 1, month: 1, week: 1, day: 1 });
 
 costRecordSchema.pre('save', function() {
-  let total = extractNumber(this.designMovies) +
-              extractNumber(this.phoneParts) +
-              extractNumber(this.laptopParts) +
-              extractNumber(this.electronicsParts) +
-              extractNumber(this.lunchMeals) +
-              extractNumber(this.other);
+  let total = (this.designMovies || 0) + (this.phoneParts || 0) +
+              (this.laptopParts || 0) + (this.electronicsParts || 0) +
+              (this.lunchMeals || 0) + (this.other || 0);
   if (this.values) {
     for (let value of this.values.values()) {
-      total += extractNumber(value);
+      if (typeof value === 'number') total += value;
     }
   }
   this.totalCosts = total;
@@ -161,6 +138,8 @@ const weeklyReportSchema = new mongoose.Schema({
   totalCosts: { type: Number, default: 0 },
   profit: { type: Number, default: 0 },
   profitMargin: { type: Number, default: 0 },
+  openingBalance: { type: Number, default: 0 },
+  closingBalance: { type: Number, default: 0 },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
@@ -169,30 +148,51 @@ weeklyReportSchema.index({ year: 1, week: 1 }, { unique: true });
 weeklyReportSchema.pre('save', function() {
   this.profit = (this.totalSales || 0) - (this.totalCosts || 0);
   this.profitMargin = this.totalSales > 0 ? (this.profit / this.totalSales) * 100 : 0;
+  this.closingBalance = (this.openingBalance || 0) + this.profit;
 });
 
-// ==================== RUNNING BALANCE MODEL ====================
-// Stores the closing balance carried forward from one period to the next.
-// This powers the P&L running balance feature.
-const runningBalanceSchema = new mongoose.Schema({
-  week: { type: Number, required: true },
-  month: { type: String, required: true },
+// ==================== PROFIT & LOSS STATEMENT MODEL ====================
+const profitLossSchema = new mongoose.Schema({
+  period: { type: String, enum: ['daily', 'weekly', 'monthly', 'quarterly', 'semiannual', 'annual'], required: true },
   year: { type: Number, required: true },
-  closingBalance: { type: Number, default: 0 },
-  openingBalance: { type: Number, default: 0 },
+  month: { type: String },
+  week: { type: Number },
+  day: { type: String },
+  startDate: { type: Date, required: true },
+  endDate: { type: Date, required: true },
   totalSales: { type: Number, default: 0 },
   totalCosts: { type: Number, default: 0 },
-  netMovement: { type: Number, default: 0 },
+  netProfit: { type: Number, default: 0 },
+  openingBalance: { type: Number, default: 0 },
+  closingBalance: { type: Number, default: 0 },
+  transactions: [{
+    date: Date,
+    type: { type: String, enum: ['sales', 'cost', 'adjustment'] },
+    description: String,
+    amount: Number,
+    category: String
+  }],
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-runningBalanceSchema.index({ year: 1, month: 1, week: 1 }, { unique: true });
+profitLossSchema.index({ period: 1, year: 1, month: 1, week: 1 });
+
+// ==================== REPORT TEMPLATE MODEL ====================
+const reportTemplateSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  type: { type: String, enum: ['daily', 'weekly', 'monthly', 'quarterly', 'semiannual', 'annual', 'custom'], required: true },
+  filters: { type: Map, of: String, default: {} },
+  columns: [String],
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  isDefault: { type: Boolean, default: false }
+}, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
 const DynamicField = mongoose.model('DynamicField', dynamicFieldSchema);
 const SalesRecord = mongoose.model('SalesRecord', salesRecordSchema);
 const CostRecord = mongoose.model('CostRecord', costRecordSchema);
 const WeeklyReport = mongoose.model('WeeklyReport', weeklyReportSchema);
-const RunningBalance = mongoose.model('RunningBalance', runningBalanceSchema);
+const ProfitLoss = mongoose.model('ProfitLoss', profitLossSchema);
+const ReportTemplate = mongoose.model('ReportTemplate', reportTemplateSchema);
 
-module.exports = { User, DynamicField, SalesRecord, CostRecord, WeeklyReport, RunningBalance, extractNumber };
+module.exports = { User, DynamicField, SalesRecord, CostRecord, WeeklyReport, ProfitLoss, ReportTemplate };
