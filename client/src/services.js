@@ -9,14 +9,12 @@ const api = axios.create({
   timeout: 30000
 });
 
-// Add token to requests
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 }, error => Promise.reject(error));
 
-// Handle responses and token refresh
 api.interceptors.response.use(
   response => {
     const newToken = response.headers['x-new-token'];
@@ -94,8 +92,14 @@ export const costsService = {
 export const reportService = {
   getWeekly: (params) => api.get('/reports/weekly', { params }),
   getMonthly: (params) => api.get('/reports/monthly', { params }),
-  // ── NEW: fetches all periods (week+month+year) that have real data ──────────
-  getAvailablePeriods: () => api.get('/reports/available-periods')
+  getAvailablePeriods: () => api.get('/reports/available-periods'),
+  getDaily: (params) => api.get('/reports/daily', { params }),
+  getCustomPeriod: (params) => api.get('/reports/custom-period', { params }),
+  getProfitLoss: (params) => api.get('/reports/profit-loss', { params }),
+  getRunningBalance: (params) => api.get('/reports/running-balance', { params }),
+  saveTemplate: (data) => api.post('/reports/templates', data),
+  getTemplates: () => api.get('/reports/templates'),
+  deleteTemplate: (id) => api.delete(`/reports/templates/${id}`)
 };
 
 export default api;
