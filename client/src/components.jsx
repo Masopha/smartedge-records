@@ -8,7 +8,8 @@ import {
   FaChartBar, FaChartPie, FaSignOutAlt, FaKey, FaLock,
   FaUndo, FaEye, FaEyeSlash, FaTimes, FaCheck, FaColumns,
   FaBars, FaHome, FaDollarSign, FaMoneyBillWave, FaPercent,
-  FaExclamationTriangle, FaTrashAlt, FaRedo, FaInfoCircle
+  FaExclamationTriangle, FaTrashAlt, FaRedo, FaInfoCircle,
+  FaFileAlt, FaWallet, FaDownload, FaFilePdf
 } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -143,9 +144,6 @@ const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecor
     return currentRecord?.[key] || 0;
   };
 
-  // ── FIXED: In Replace mode, if the user left a field blank (didn't type
-  // anything), keep the existing value instead of replacing it with 0.
-  // This prevents untouched fields from being wiped when replacing one field.
   const getPreview = (key) => {
     const raw = inputValues[key];
     const current = getCurrent(key);
@@ -155,8 +153,6 @@ const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecor
       return current + input;
     }
 
-    // Replace mode — only replace if the user actually typed something.
-    // Empty string means they left it alone, so keep the current value.
     if (raw === '' || raw === null || raw === undefined) return current;
     return parseFloat(raw) || 0;
   };
@@ -185,7 +181,6 @@ const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecor
         </Modal.Title>
       </Modal.Header>
       <Modal.Body>
-        {/* Mode toggle */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
           <button
             onClick={() => setMode('add')}
@@ -219,7 +214,6 @@ const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecor
             : 'Enter a new amount only for the fields you want to change. Leave others blank to keep their current value.'}
         </p>
 
-        {/* Fields */}
         {allFields.map(field => {
           const current = getCurrent(field.key);
           const raw = inputValues[field.key];
@@ -250,7 +244,6 @@ const EditCellModal = ({ show, onHide, day, columns, dynamicFields, currentRecor
                   placeholder={mode === 'add' ? 'Amount to add...' : 'New value (leave blank to keep current)'}
                   style={{ flex: 1 }}
                 />
-                {/* Live preview — only show when user has typed something */}
                 {hasInput && (
                   <div style={{
                     minWidth: 140, textAlign: 'right', fontSize: '0.85rem',
@@ -366,6 +359,8 @@ export const NavigationBar = ({ user, onLogout }) => {
     { href: '/sales', label: 'Sales', icon: <FaChartLine size={12} /> },
     { href: '/costs', label: 'Costs', icon: <FaMoneyBillWave size={12} /> },
     { href: '/statistics', label: 'Statistics', icon: <FaChartBar size={12} /> },
+    { href: '/reports', label: 'Reports', icon: <FaFileAlt size={12} /> },
+    { href: '/profit-loss', label: 'P&L', icon: <FaWallet size={12} /> },
   ];
   if (user?.role === 'admin') navItems.push({ href: '/settings/fields', label: 'Settings', icon: <FaColumns size={12} /> });
 
@@ -459,6 +454,7 @@ const AddColumnModal = ({ show, type, onSave, onHide }) => {
           <Form.Label>Field Type</Form.Label>
           <Form.Select value={fieldType} onChange={e => setFieldType(e.target.value)}>
             <option value="currency">Currency (ZAR)</option>
+            <option value="text">Text (e.g. Kettle 70.00)</option>
             <option value="number">Number</option>
             <option value="percentage">Percentage</option>
           </Form.Select>
@@ -504,10 +500,18 @@ const AddRowModal = ({ show, type, baseColumns, dynamicFields, week, month, year
         {dynamicFields.map(f => (
           <Form.Group key={f._id} className="mb-3">
             <Form.Label>{f.fieldName}</Form.Label>
-            <Form.Control type="number" min="0" step="0.01"
-              value={values[`dyn_${f.fieldName}`] || ''}
-              onChange={e => setValues(v => ({ ...v, [`dyn_${f.fieldName}`]: parseFloat(e.target.value) || 0 }))}
-              placeholder="0.00" />
+            {f.fieldType === 'text' ? (
+              <Form.Control
+                type="text"
+                value={values[`dyn_${f.fieldName}`] || ''}
+                onChange={e => setValues(v => ({ ...v, [`dyn_${f.fieldName}`]: e.target.value }))}
+                placeholder="e.g. Kettle 70.00" />
+            ) : (
+              <Form.Control type="number" min="0" step="0.01"
+                value={values[`dyn_${f.fieldName}`] || ''}
+                onChange={e => setValues(v => ({ ...v, [`dyn_${f.fieldName}`]: parseFloat(e.target.value) || 0 }))}
+                placeholder="0.00" />
+            )}
           </Form.Group>
         ))}
       </Modal.Body>
@@ -622,7 +626,15 @@ export const SalesTable = ({ week, month, year }) => {
   const handleAddRow = async (rowData) => {
     try {
       const dynValues = {};
-      fields.forEach(f => { dynValues[f.fieldName] = rowData[`dyn_${f.fieldName}`] || 0; delete rowData[`dyn_${f.fieldName}`]; });
+      fields.forEach(f => { 
+        const val = rowData[`dyn_${f.fieldName}`];
+        if (f.fieldType === 'text') {
+          dynValues[f.fieldName] = val || '';
+        } else {
+          dynValues[f.fieldName] = parseFloat(val) || 0;
+        }
+        delete rowData[`dyn_${f.fieldName}`];
+      });
       await salesService.create({ ...rowData, values: dynValues });
       toast.success('Row added'); fetchAll();
     } catch { toast.error('Failed to add row'); }
@@ -638,7 +650,9 @@ export const SalesTable = ({ week, month, year }) => {
       baseColumns.forEach(c => { totals[c.key] += r[c.key] || 0; });
       fields.forEach(f => {
         const v = r.values?.get?.(f.fieldName) ?? r.values?.[f.fieldName] ?? 0;
-        totals[`dyn_${f.fieldName}`] += v;
+        if (typeof v === 'number') {
+          totals[`dyn_${f.fieldName}`] += v;
+        }
       });
       grandTotal += r.totalSales || 0;
     });
@@ -716,6 +730,15 @@ export const SalesTable = ({ week, month, year }) => {
                           ))}
                           {fields.map(f => {
                             const val = record.values?.get?.(f.fieldName) ?? record.values?.[f.fieldName] ?? 0;
+                            if (f.fieldType === 'text') {
+                              return (
+                                <td key={f._id}>
+                                  <span style={{ color: 'var(--text-primary)' }}>
+                                    {val || '-'}
+                                  </span>
+                                </td>
+                              );
+                            }
                             return (
                               <td key={f._id}>
                                 <span style={{ color: val > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
@@ -908,7 +931,15 @@ export const CostsTable = ({ week, month, year }) => {
   const handleAddRow = async (rowData) => {
     try {
       const dynValues = {};
-      fields.forEach(f => { dynValues[f.fieldName] = rowData[`dyn_${f.fieldName}`] || 0; delete rowData[`dyn_${f.fieldName}`]; });
+      fields.forEach(f => { 
+        const val = rowData[`dyn_${f.fieldName}`];
+        if (f.fieldType === 'text') {
+          dynValues[f.fieldName] = val || '';
+        } else {
+          dynValues[f.fieldName] = parseFloat(val) || 0;
+        }
+        delete rowData[`dyn_${f.fieldName}`];
+      });
       await costsService.create({ ...rowData, values: dynValues });
       toast.success('Row added'); fetchAll();
     } catch { toast.error('Failed to add row'); }
@@ -924,7 +955,9 @@ export const CostsTable = ({ week, month, year }) => {
       baseColumns.forEach(c => { totals[c.key] += r[c.key] || 0; });
       fields.forEach(f => {
         const v = r.values?.get?.(f.fieldName) ?? r.values?.[f.fieldName] ?? 0;
-        totals[`dyn_${f.fieldName}`] += v;
+        if (typeof v === 'number') {
+          totals[`dyn_${f.fieldName}`] += v;
+        }
       });
       grandTotal += r.totalCosts || 0;
     });
@@ -1002,6 +1035,15 @@ export const CostsTable = ({ week, month, year }) => {
                           ))}
                           {fields.map(f => {
                             const val = record.values?.get?.(f.fieldName) ?? record.values?.[f.fieldName] ?? 0;
+                            if (f.fieldType === 'text') {
+                              return (
+                                <td key={f._id}>
+                                  <span style={{ color: 'var(--text-primary)' }}>
+                                    {val || '-'}
+                                  </span>
+                                </td>
+                              );
+                            }
                             return (
                               <td key={f._id}>
                                 <span style={{ color: val > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
@@ -1514,6 +1556,616 @@ export const DynamicFieldsSettings = () => {
         onConfirm={() => handleDelete(confirm.id, confirm.perm)}
         onCancel={() => setConfirm(null)}
       />
+    </Container>
+  );
+};
+
+// =====================================================
+// REPORTS - Enhanced Reporting Module
+// =====================================================
+export const Reports = () => {
+  const [reportType, setReportType] = useState('daily');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [reportData, setReportData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
+
+  const reportTypes = [
+    { value: 'daily', label: '📅 Daily Report' },
+    { value: 'weekly', label: '📊 Weekly Report' },
+    { value: 'monthly', label: '📈 Monthly Report' },
+    { value: '3', label: '📆 3-Month Report' },
+    { value: '6', label: '📆 6-Month Report' },
+    { value: '9', label: '📆 9-Month Report' },
+    { value: '12', label: '📆 12-Month Report' },
+    { value: 'custom', label: '📅 Custom Range' }
+  ];
+
+  const getPeriodFromDate = (date) => {
+    const d = new Date(date);
+    const month = d.toLocaleString('default', { month: 'long' });
+    const year = d.getFullYear();
+    const week = Math.ceil(d.getDate() / 7);
+    return { year, month, week };
+  };
+
+  const generateReport = async () => {
+    setLoading(true);
+    try {
+      let response;
+      const params = {};
+
+      switch (reportType) {
+        case 'daily':
+          params.date = selectedDate;
+          response = await reportService.getDaily(params);
+          break;
+        case 'weekly':
+          const { year, week } = getPeriodFromDate(selectedDate);
+          response = await reportService.getWeekly({ year, week });
+          break;
+        case 'monthly':
+          const { year: y, month: m } = getPeriodFromDate(selectedDate);
+          response = await reportService.getMonthly({ year: y, month: m });
+          break;
+        case '3':
+        case '6':
+        case '9':
+        case '12':
+          const months = parseInt(reportType);
+          const startDate = new Date();
+          startDate.setMonth(startDate.getMonth() - months);
+          params.months = months;
+          params.startDate = startDate.toISOString().split('T')[0];
+          response = await reportService.getCustomPeriod(params);
+          break;
+        case 'custom':
+          if (!dateRange.start || !dateRange.end) {
+            toast.error('Please select start and end dates');
+            return;
+          }
+          params.startDate = dateRange.start;
+          params.endDate = dateRange.end;
+          response = await reportService.getCustomPeriod({ ...params, months: 'custom' });
+          break;
+        default:
+          return;
+      }
+
+      setReportData(response.data.data);
+      toast.success('Report generated successfully');
+    } catch (error) {
+      toast.error('Failed to generate report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadCSV = () => {
+    if (!reportData) return;
+    
+    let csv = 'Period,Sales,Costs,Profit\n';
+    const data = reportData.monthlyData || reportData.dailyBreakdown || [];
+    
+    if (data.length > 0) {
+      data.forEach(item => {
+        const period = item.day || item.month || `Week ${item.week}`;
+        csv += `${period},${item.sales || 0},${item.costs || 0},${item.profit || 0}\n`;
+      });
+    } else {
+      csv += `${selectedDate},${reportData.sales?.totalSales || 0},${reportData.costs?.totalCosts || 0},${reportData.profit || 0}\n`;
+    }
+    
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `report_${reportType}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const saveTemplate = async () => {
+    const name = prompt('Enter template name:');
+    if (!name) return;
+    try {
+      await reportService.saveTemplate({
+        name,
+        type: reportType,
+        filters: { dateRange }
+      });
+      toast.success('Template saved');
+      loadTemplates();
+    } catch {
+      toast.error('Failed to save template');
+    }
+  };
+
+  const loadTemplates = async () => {
+    try {
+      const res = await reportService.getTemplates();
+      setTemplates(res.data.data);
+    } catch {
+      // Silently fail
+    }
+  };
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  return (
+    <Container fluid className="py-4" style={{ maxWidth: 1400 }}>
+      <motion.div variants={slideLeft} initial="hidden" animate="visible">
+        <div className="page-header">
+          <h2>📊 Reports</h2>
+          <p>Generate comprehensive reports for your business</p>
+        </div>
+      </motion.div>
+
+      <Card className="mb-4">
+        <Card.Body>
+          <Row className="g-3">
+            <Col md={3}>
+              <Form.Group>
+                <Form.Label>Report Type</Form.Label>
+                <Form.Select value={reportType} onChange={e => setReportType(e.target.value)}>
+                  {reportTypes.map(rt => (
+                    <option key={rt.value} value={rt.value}>{rt.label}</option>
+                  ))}
+                </Form.Select>
+              </Form.Group>
+            </Col>
+
+            {reportType === 'daily' && (
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Date</Form.Label>
+                  <Form.Control
+                    type="date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                  />
+                </Form.Group>
+              </Col>
+            )}
+
+            {['weekly', 'monthly'].includes(reportType) && (
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Date</Form.Label>
+                  <Form.Control
+                    type="date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                  />
+                </Form.Group>
+              </Col>
+            )}
+
+            {['3', '6', '9', '12'].includes(reportType) && (
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Period</Form.Label>
+                  <Form.Control
+                    type="text"
+                    value={`${reportType} Months (Last ${reportType} months from today)`}
+                    disabled
+                    style={{ fontSize: '0.82rem' }}
+                  />
+                </Form.Group>
+              </Col>
+            )}
+
+            {reportType === 'custom' && (
+              <>
+                <Col md={3}>
+                  <Form.Group>
+                    <Form.Label>Start Date</Form.Label>
+                    <Form.Control
+                      type="date"
+                      value={dateRange.start}
+                      onChange={e => setDateRange(d => ({ ...d, start: e.target.value }))}
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={3}>
+                  <Form.Group>
+                    <Form.Label>End Date</Form.Label>
+                    <Form.Control
+                      type="date"
+                      value={dateRange.end}
+                      onChange={e => setDateRange(d => ({ ...d, end: e.target.value }))}
+                    />
+                  </Form.Group>
+                </Col>
+              </>
+            )}
+
+            <Col md={3} className="d-flex align-items-end">
+              <Button variant="primary" onClick={generateReport} disabled={loading} className="w-100">
+                {loading ? <><Spinner size="sm" className="me-2" />Generating...</> : 'Generate Report'}
+              </Button>
+            </Col>
+          </Row>
+
+          {reportData && (
+            <div className="mt-3 d-flex gap-2 flex-wrap">
+              <Button variant="success" size="sm" onClick={downloadCSV}>
+                <FaDownload className="me-1" /> Download CSV
+              </Button>
+              <Button variant="info" size="sm" onClick={() => toast.info('PDF export coming soon!')}>
+                <FaFilePdf className="me-1" /> Download PDF
+              </Button>
+              <Button variant="warning" size="sm" onClick={saveTemplate}>
+                <FaSave className="me-1" /> Save Template
+              </Button>
+            </div>
+          )}
+        </Card.Body>
+      </Card>
+
+      {templates.length > 0 && (
+        <Card className="mb-4">
+          <Card.Header>
+            <h5>Saved Templates</h5>
+          </Card.Header>
+          <Card.Body>
+            <div className="d-flex gap-2 flex-wrap">
+              {templates.map(template => (
+                <Badge key={template._id} bg="info" className="p-2" style={{ fontSize: '0.8rem' }}>
+                  {template.name}
+                  <FaTimes className="ms-2" style={{ cursor: 'pointer' }}
+                    onClick={async () => {
+                      if (confirm('Delete this template?')) {
+                        await reportService.deleteTemplate(template._id);
+                        loadTemplates();
+                        toast.success('Template deleted');
+                      }
+                    }}
+                  />
+                </Badge>
+              ))}
+            </div>
+          </Card.Body>
+        </Card>
+      )}
+
+      {reportData && (
+        <motion.div variants={fadeUp} initial="hidden" animate="visible">
+          <Card>
+            <Card.Header>
+              <h5>Report Results</h5>
+            </Card.Header>
+            <Card.Body>
+              <div className="report-content">
+                {reportData.monthlyData ? (
+                  <>
+                    <div className="report-summary">
+                      <Row className="g-3 mb-4">
+                        <Col md={3}>
+                          <div className="stat-card sales">
+                            <h6>Total Sales</h6>
+                            <h3>{formatCurrency(reportData.totalSales)}</h3>
+                          </div>
+                        </Col>
+                        <Col md={3}>
+                          <div className="stat-card costs">
+                            <h6>Total Costs</h6>
+                            <h3>{formatCurrency(reportData.totalCosts)}</h3>
+                          </div>
+                        </Col>
+                        <Col md={3}>
+                          <div className="stat-card profit">
+                            <h6>Net Profit</h6>
+                            <h3 className={reportData.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                              {formatCurrency(reportData.totalProfit)}
+                            </h3>
+                          </div>
+                        </Col>
+                        <Col md={3}>
+                          <div className="stat-card margin">
+                            <h6>Profit Margin</h6>
+                            <h3>{reportData.profitMargin.toFixed(1)}%</h3>
+                          </div>
+                        </Col>
+                      </Row>
+                    </div>
+
+                    <div className="table-wrapper">
+                      <Table>
+                        <thead>
+                          <tr>
+                            <th>Month</th>
+                            <th>Year</th>
+                            <th>Sales</th>
+                            <th>Costs</th>
+                            <th>Profit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportData.monthlyData.map((item, i) => (
+                            <tr key={i}>
+                              <td><strong>{item.month}</strong></td>
+                              <td>{item.year}</td>
+                              <td>{formatCurrency(item.sales)}</td>
+                              <td>{formatCurrency(item.costs)}</td>
+                              <td className={item.profit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                                {formatCurrency(item.profit)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                  </>
+                ) : reportData.dailyBreakdown ? (
+                  <>
+                    <div className="report-summary">
+                      <Row className="g-3 mb-4">
+                        <Col md={4}>
+                          <div className="stat-card sales">
+                            <h6>Total Sales</h6>
+                            <h3>{formatCurrency(reportData.totalSales)}</h3>
+                          </div>
+                        </Col>
+                        <Col md={4}>
+                          <div className="stat-card costs">
+                            <h6>Total Costs</h6>
+                            <h3>{formatCurrency(reportData.totalCosts)}</h3>
+                          </div>
+                        </Col>
+                        <Col md={4}>
+                          <div className="stat-card profit">
+                            <h6>Net Profit</h6>
+                            <h3 className={reportData.profit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                              {formatCurrency(reportData.profit)}
+                            </h3>
+                          </div>
+                        </Col>
+                      </Row>
+                    </div>
+
+                    <div className="table-wrapper">
+                      <Table>
+                        <thead>
+                          <tr>
+                            <th>Day/Week</th>
+                            <th>Sales</th>
+                            <th>Costs</th>
+                            <th>Profit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportData.dailyBreakdown?.map((item, i) => (
+                            <tr key={i}>
+                              <td><strong>{item.day || `Week ${item.week}`}</strong></td>
+                              <td>{formatCurrency(item.sales)}</td>
+                              <td>{formatCurrency(item.costs)}</td>
+                              <td className={item.profit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                                {formatCurrency(item.profit)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                  </>
+                ) : (
+                  <div className="report-single-day">
+                    <Row className="g-3">
+                      <Col md={4}>
+                        <div className="stat-card sales">
+                          <h6>Sales</h6>
+                          <h3>{formatCurrency(reportData.sales?.totalSales || 0)}</h3>
+                        </div>
+                      </Col>
+                      <Col md={4}>
+                        <div className="stat-card costs">
+                          <h6>Costs</h6>
+                          <h3>{formatCurrency(reportData.costs?.totalCosts || 0)}</h3>
+                        </div>
+                      </Col>
+                      <Col md={4}>
+                        <div className="stat-card profit">
+                          <h6>Profit</h6>
+                          <h3 className={reportData.profit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                            {formatCurrency(reportData.profit)}
+                          </h3>
+                        </div>
+                      </Col>
+                    </Row>
+                    <div className="mt-3 p-3" style={{ background: 'rgba(102,126,234,0.05)', borderRadius: 8 }}>
+                      <p><strong>Date:</strong> {reportData.date ? new Date(reportData.date).toDateString() : selectedDate}</p>
+                      <p><strong>Week:</strong> {reportData.week}</p>
+                      <p><strong>Month:</strong> {reportData.month}</p>
+                      <p><strong>Year:</strong> {reportData.year}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card.Body>
+          </Card>
+        </motion.div>
+      )}
+    </Container>
+  );
+};
+
+// =====================================================
+// PROFIT & LOSS STATEMENT
+// =====================================================
+export const ProfitLossStatement = () => {
+  const [period, setPeriod] = useState('weekly');
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [balance, setBalance] = useState(0);
+
+  const periods = [
+    { value: 'daily', label: '📅 Daily' },
+    { value: 'weekly', label: '📊 Weekly' },
+    { value: 'monthly', label: '📈 Monthly' },
+    { value: 'custom', label: '📆 Custom Range' }
+  ];
+
+  const generateStatement = async () => {
+    setLoading(true);
+    try {
+      const date = new Date(selectedDate);
+      const month = date.toLocaleString('default', { month: 'long' });
+      const year = date.getFullYear();
+      const week = Math.ceil(date.getDate() / 7);
+
+      const params = { period, year, month };
+      if (period === 'weekly') params.week = week;
+      if (period === 'daily') params.month = month;
+
+      const response = await reportService.getProfitLoss(params);
+      setData(response.data.data);
+      
+      const balanceRes = await reportService.getRunningBalance({ year, month });
+      setBalance(balanceRes.data.data.currentBalance || 0);
+      
+      toast.success('Statement generated');
+    } catch (error) {
+      toast.error('Failed to generate statement');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    generateStatement();
+  }, [period, selectedDate]);
+
+  return (
+    <Container fluid className="py-4" style={{ maxWidth: 1400 }}>
+      <motion.div variants={slideLeft} initial="hidden" animate="visible">
+        <div className="page-header">
+          <h2>📈 Profit & Loss Statement</h2>
+          <p>Track your running balance and financial performance</p>
+        </div>
+      </motion.div>
+
+      <Card className="mb-4">
+        <Card.Body>
+          <Row className="g-3">
+            <Col md={3}>
+              <Form.Group>
+                <Form.Label>Period</Form.Label>
+                <Form.Select value={period} onChange={e => setPeriod(e.target.value)}>
+                  {periods.map(p => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </Form.Select>
+              </Form.Group>
+            </Col>
+            <Col md={3}>
+              <Form.Group>
+                <Form.Label>Date</Form.Label>
+                <Form.Control
+                  type="date"
+                  value={selectedDate}
+                  onChange={e => setSelectedDate(e.target.value)}
+                />
+              </Form.Group>
+            </Col>
+            <Col md={6} className="d-flex align-items-end">
+              <div className="d-flex gap-3 w-100">
+                <div className="stat-card profit" style={{ padding: '12px 24px', flex: 1 }}>
+                  <h6>Current Balance</h6>
+                  <h3 className={balance >= 0 ? 'profit-positive' : 'profit-negative'}>
+                    {formatCurrency(balance)}
+                  </h3>
+                </div>
+              </div>
+            </Col>
+          </Row>
+        </Card.Body>
+      </Card>
+
+      {loading ? (
+        <Loader text="Generating statement..." />
+      ) : data ? (
+        <motion.div variants={fadeUp} initial="hidden" animate="visible">
+          <Card>
+            <Card.Header>
+              <h5>Statement Details</h5>
+              <div>
+                <small style={{ color: 'var(--text-muted)' }}>
+                  Opening Balance: {formatCurrency(data.openingBalance)}
+                </small>
+              </div>
+            </Card.Header>
+            <Card.Body>
+              <div className="table-wrapper">
+                <Table>
+                  <thead>
+                    <tr>
+                      <th>Period</th>
+                      <th>Sales</th>
+                      <th>Costs</th>
+                      <th>Profit/Loss</th>
+                      <th>Running Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.periodData?.map((item, i) => (
+                      <tr key={i}>
+                        <td><strong>{item.day || `Week ${item.week}`}</strong></td>
+                        <td>{formatCurrency(item.sales)}</td>
+                        <td>{formatCurrency(item.costs)}</td>
+                        <td className={item.profit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                          {formatCurrency(item.profit)}
+                        </td>
+                        <td><strong>{formatCurrency(item.balance)}</strong></td>
+                      </tr>
+                    ))}
+                    <tr className="total-row">
+                      <td colSpan="3"><strong>TOTAL</strong></td>
+                      <td className={data.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'}>
+                        <strong>{formatCurrency(data.totalProfit)}</strong>
+                      </td>
+                      <td><strong>{formatCurrency(data.closingBalance)}</strong></td>
+                    </tr>
+                  </tbody>
+                </Table>
+              </div>
+
+              <div className="mt-4 p-3" style={{
+                background: 'rgba(102,126,234,0.05)',
+                border: '1px solid rgba(102,126,234,0.1)',
+                borderRadius: 8
+              }}>
+                <Row>
+                  <Col md={4}>
+                    <small style={{ color: 'var(--text-muted)' }}>Opening Balance</small>
+                    <p className="h5">{formatCurrency(data.openingBalance)}</p>
+                  </Col>
+                  <Col md={4}>
+                    <small style={{ color: 'var(--text-muted)' }}>Total Profit/Loss</small>
+                    <p className={`h5 ${data.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'}`}>
+                      {formatCurrency(data.totalProfit)}
+                    </p>
+                  </Col>
+                  <Col md={4}>
+                    <small style={{ color: 'var(--text-muted)' }}>Closing Balance</small>
+                    <p className="h5">{formatCurrency(data.closingBalance)}</p>
+                  </Col>
+                </Row>
+              </div>
+            </Card.Body>
+          </Card>
+        </motion.div>
+      ) : (
+        <div className="empty-state">
+          <p>Select a period and date to generate the statement</p>
+        </div>
+      )}
     </Container>
   );
 };
