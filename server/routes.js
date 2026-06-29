@@ -43,8 +43,13 @@ router.delete('/costs/:id/permanent', auth, authorize('admin'), costsController.
 // ==================== REPORT ROUTES ====================
 router.get('/reports/weekly', auth, reportController.getWeeklyReport);
 router.get('/reports/monthly', auth, reportController.getMonthlyReport);
-
-// ── NEW: Smart period dropdown — returns only periods with real data ──────────
 router.get('/reports/available-periods', auth, reportController.getAvailablePeriods);
+router.get('/reports/daily', auth, reportController.getDailyReport);
+router.get('/reports/custom-period', auth, reportController.getCustomPeriodReport);
+router.get('/reports/profit-loss', auth, reportController.getProfitLossStatement);
+router.get('/reports/running-balance', auth, reportController.getRunningBalance);
+router.post('/reports/templates', auth, reportController.saveReportTemplate);
+router.get('/reports/templates', auth, reportController.getReportTemplates);
+router.delete('/reports/templates/:id', auth, reportController.deleteReportTemplate);
 
 module.exports = router;
