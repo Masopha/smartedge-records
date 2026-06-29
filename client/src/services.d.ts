@@ -4,8 +4,6 @@ export const authService: {
   login: (data: any) => Promise<AxiosResponse>;
   getMe: () => Promise<AxiosResponse>;
   changePassword: (data: any) => Promise<AxiosResponse>;
-  forgotPassword: (data: any) => Promise<AxiosResponse>;
-  resetPassword: (data: any) => Promise<AxiosResponse>;
 };
 
 export const fieldService: {
@@ -40,6 +38,13 @@ export const reportService: {
   getWeekly: (params: any) => Promise<AxiosResponse>;
   getMonthly: (params: any) => Promise<AxiosResponse>;
   getAvailablePeriods: () => Promise<AxiosResponse>;
+  getDaily: (params: any) => Promise<AxiosResponse>;
+  getCustomPeriod: (params: any) => Promise<AxiosResponse>;
+  getProfitLoss: (params: any) => Promise<AxiosResponse>;
+  getRunningBalance: (params: any) => Promise<AxiosResponse>;
+  saveTemplate: (data: any) => Promise<AxiosResponse>;
+  getTemplates: () => Promise<AxiosResponse>;
+  deleteTemplate: (id: string) => Promise<AxiosResponse>;
 };
 
 declare const api: AxiosInstance;
